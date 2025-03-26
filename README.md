@@ -16,9 +16,10 @@ BacNex aims to identify microbiota features differentiating the cohorts, enablin
 
 BacNex is built on the conda environment and supports only Linux x64 systems. Please make sure the [conda](https://docs.conda.io/en/latest/) is installed.
 
-```Shell
-$ conda env create -f bacnex_env.yml --name bacnex
-$ conda activate bacnex
+```shell
+$ git clone https://github.com/RynoLiu/BacNex.git
+$ conda env create -f /env/bacnex_env_v2.yml --name bacnex_env
+$ conda activate bacnex_env
 ```
 
 This command will automatically install dependencies of BacNex. The YAML files are in **env**.
@@ -42,7 +43,7 @@ This command will automatically install dependencies of BacNex. The YAML files a
 #### Manual installation
 1. [PreLectR](https://github.com/YinchengChen23/PreLectR)
 
-```
+```shell
 $ Rscript -e "install.packages('remotes', repos='https://cloud.r-project.org/')"
 $ Rscript -e "remotes::install_github('YinchengChen23/PreLectR')"
 ```
@@ -109,7 +110,7 @@ We provide a module to preprocess raw metagenomic sequences. Module `preprocess`
 
 In certain conditions, KneadData may yeild `ERROR: Unable to find trimmomatic`. Users can manually install Trimmomatic and provide the parameter `--trimmomatic` in `-kd` options.
 
-```
+```shell
 $ bash BacNex.sh preprocess \
 > -i $seq_dir \
 > -o $outdir \
