@@ -39,6 +39,9 @@ This command will automatically install dependencies of BacNex. The YAML files a
 12. [ggpubr](https://github.com/kassambara/ggpubr)
 13. [uwot](https://github.com/jlmelville/uwot)
 14. [patchwork](https://github.com/thomasp85/patchwork)
+15. [python](https://www.python.org/) (v3.11)
+16. [R](https://www.r-project.org/) (v4.4.2)
+
 
 #### Manual installation
 1. [PreLectR](https://github.com/YinchengChen23/PreLectR)
@@ -193,6 +196,7 @@ Module `Differential taxa` employ [PreLect algorithms](https://github.com/Yinche
 The networks are constructed based on taxonomy genomic similarity, with Fisher's exact test employed to evaluate the overlap of KOs between pairs of taxa. Taxa pairs are considered connected if the FDR is below a specified threshold, and the odds ratio serves as the weight for the corresponding edge.
 
 ![alt](img/img2.png?raw=true)
+
 **Fig 2.** Schematic of taxa-taxa genomic similarity network
 
 
