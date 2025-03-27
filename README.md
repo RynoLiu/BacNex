@@ -12,7 +12,7 @@ BacNex aims to identify microbiota features differentiating the cohorts, enablin
 * [Author](#authors)
 
 
-## Intallation
+## Installation
 
 BacNex is built on the conda environment and supports only Linux x64 systems. Please make sure the [conda](https://docs.conda.io/en/latest/) is installed.
 
@@ -22,7 +22,7 @@ $ conda env create -f /env/bacnex_env_v2.yml --name bacnex_env
 $ conda activate bacnex_env
 ```
 
-This command will automatically install dependencies of BacNex. The YAML files are in **env**.
+This command will automatically install dependencies of BacNex. The YAML files are in [env](/env/).
 
 #### Automatical installation
 1. [HUMAnN 3](https://github.com/biobakery/humann)
@@ -44,18 +44,17 @@ This command will automatically install dependencies of BacNex. The YAML files a
 
 
 #### Manual installation
-1. [PreLectR](https://github.com/YinchengChen23/PreLectR)
+
+The [PreLectR](https://github.com/YinchengChen23/PreLectR) need to be installed by the user.
 
 ```shell
 $ Rscript -e "install.packages('remotes', repos='https://cloud.r-project.org/')"
 $ Rscript -e "remotes::install_github('YinchengChen23/PreLectR')"
 ```
 
-The software need to be installed by the user.
-
 
 ## Example data
-We provides the files for users to quickly demo BacNex as the follows:
+We provides the demo files in [data](/data/) for users to quickly demo BacNex as the follows:
 
 1. KO.tsv (HUMAnN3 intergrated data)
 2. meta.csv (metadata for demo data)
