@@ -26,7 +26,7 @@ library(PreLectR)
 working_dir <- Sys.getenv("WORKING_DIR")
 script_dir <- Sys.getenv("SCRIPT_DIR")
 threads <- Sys.getenv("THREADS")
-# working_dir <- "~/Documents/YFC_MCI_project/96mci250normal_bacnex"
+# working_dir <- "~/Documents/CRC_project/100_312crc_570control/time2event_project"
 # script_dir <- "~/Documents/vscode/files/BacNex/modules"
 # threads <- 5
 
@@ -108,7 +108,7 @@ ui <- dashboardPage(
                   tags$li(
                     class = "dropdown",
                     style = "padding: 1px; margin-right: 4px;",
-                    tags$span("Beta 2.1", style = "font-size: 10px; color: black;"))
+                    tags$span("Ver. 1.1", style = "font-size: 10px; color: black;"))
   ),
 
   dashboardSidebar(
@@ -286,8 +286,10 @@ ui <- dashboardPage(
                     ),
                     loadingButton("opt_lambda", "Get the result", loadingLabel = "Processing...", style="color: #444; background-color: #f4f4f4; border-color: #ddd;"),
                     HTML('<br><br>'),
-                    plotOutput("lambda_dec_plot"),
-                    h4(textOutput("opt_lambda_value"))
+                    plotOutput("lambda_dec_plot", width="60%"),
+                    h4(textOutput("opt_lambda_value")),
+                    HTML('<br>'),
+                    div(DT::dataTableOutput("PL_history", width="60%"))
                     ) # box
               ), # row
 
@@ -563,7 +565,7 @@ server <- function(input, output, session) {
   values_auto <- reactiveValues(x_scaled=NULL)
 
   # opt lambda values
-  values_opt_lmbd <- reactiveValues(opt_lmbd=NULL)
+  values_opt_lmbd <- reactiveValues(opt_lmbd=NULL, history=NULL)
 
   # run_PreLect values
   values_runprelect <- reactiveValues(PLres=NULL)
@@ -971,6 +973,7 @@ server <- function(input, output, session) {
       perm_result <- adonis2(data_dist ~ Event, data=values_meta$meta_v, permutations = 999) # p_val
     }
     p_val <- perm_result$`Pr(>F)`
+    R2 <- perm_result["Model", "R2"]
 
     # pcoa
     if(dim_method == "pcoa") {
@@ -992,7 +995,7 @@ server <- function(input, output, session) {
                             scale_fill_manual(values = colors) +
                             xlab(paste0(c('PC1 (', pcoa_prop[1],'% var.explained)'), collapse = "")) +
                             ylab(paste0(c('PC2 (', pcoa_prop[2],'% var.explained)'), collapse = "")) +
-                            labs(tag = paste0("p-val: ", p_val)) +
+                            labs(tag = sprintf("R2    : %.3f\np-val : %.3f", R2, p_val)) +
                             theme(panel.background = element_rect(fill = 'transparent'),
                                   panel.grid = element_blank(),
                                   axis.ticks.length = unit(0.4,"lines"),
@@ -1020,7 +1023,7 @@ server <- function(input, output, session) {
                             scale_color_manual(values = colors)+
                             scale_fill_manual(values = colors) +
                             xlab('t-SNE1') + ylab("t-SNE2") +
-                            labs(tag = paste0("p-val: ", p_val)) +
+                            labs(tag = sprintf("R2    : %.3f\np-val : %.3f", R2, p_val)) +
                             theme(panel.background = element_rect(fill = 'transparent'),
                                   panel.grid = element_blank(),
                                   axis.ticks.length = unit(0.4,"lines"),
@@ -1049,7 +1052,7 @@ server <- function(input, output, session) {
                             scale_color_manual(values = colors)+
                             scale_fill_manual(values = colors) +
                             xlab('UMAP1') + ylab("UMAP2") +
-                            labs(tag = paste0("p-val: ", p_val)) +
+                            labs(tag = sprintf("R2    : %.3f\np-val : %.3f", R2, p_val)) +
                             theme(panel.background = element_rect(fill = 'transparent'),
                                   panel.grid = element_blank(),
                                   axis.ticks.length = unit(0.4,"lines"),
@@ -1076,7 +1079,7 @@ server <- function(input, output, session) {
                             scale_color_manual(values = colors)+
                             scale_fill_manual(values = colors) +
                             xlab("MDS1") + ylab("MDS2") +
-                            labs(tag = paste0("p-val: ", p_val)) +
+                            labs(tag = sprintf("R2    : %.3f\np-val : %.3f", R2, p_val)) +
                             theme(panel.background = element_rect(fill = 'transparent'),
                                   panel.grid = element_blank(),
                                   axis.ticks.length = unit(0.4,"lines"),
@@ -1337,7 +1340,7 @@ server <- function(input, output, session) {
     save_dir = file.path(working_dir, 'prelect_dir')
 
     if(dir.exists(save_dir)){
-      d1 <- read.csv(file.path(save_dir, 'TuningResult.csv'))
+      d1 <- read.csv(file.path(save_dir, 'TuningResult.csv'), row.names=1)
       d2 <- read.csv(file.path(save_dir,'Pvl_distribution.csv'))
       lmbd_picking <- LambdaDecision(d1, d2, maxdepth=maxdepth_, minbucket=minbucket_)
 
@@ -1362,6 +1365,17 @@ server <- function(input, output, session) {
       })
 
     }
+
+    values_opt_lmbd$history <- d1
+    output$PL_history <- DT::renderDT({
+      if(is.null(values_opt_lmbd$history)){
+        return(NULL)
+      }
+      numeric_cols <- colnames(values_opt_lmbd$history)[sapply(values_opt_lmbd$history, is.numeric)]
+      numeric_cols <- numeric_cols[-1]
+      datatable(values_opt_lmbd$history, options=list(scrollX=T)) %>%
+        formatSignif(columns = numeric_cols, digits = 3)
+    })
 
     # update opt_lmbd selector
     updateNumericInput(session, "opt_lmbd", label='optimized lambda', value=lmbd_picking$opt_lmbd, min=0, max=10, step=1)
@@ -2274,7 +2288,7 @@ server <- function(input, output, session) {
       output$forest_plot_ui <- renderUI({
         tagList(
           HTML("<h4><b>Correlation between clusters and cohorts</b></h4>"),
-          plotOutput("clust_forest_plot")
+          plotOutput("clust_forest_plot", width="70%")
         )
       })
 
