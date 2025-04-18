@@ -51,11 +51,11 @@ else
     echo "Error: browser not supported"; exit 1
 fi
 
-if [ ! -f "${working_dir}/taxa_table.csv"]; then
+if [ ! -f "${working_dir}/taxa_table.csv" ]; then
     echo "Error: taxa_table.csv not found in the working directory. You can rerun make_table module again."; exit 1
-elif [ ! -f "${working_dir}/func_table.tsv"]; then
+elif [ ! -f "${working_dir}/func_table.tsv" ]; then
     echo "Error: func_table.tsv not found in the working directory. You can rerun make_table module again."; exit 1
-elif [ ! -f "${working_dir}/taxa_koDict.json"]; then
+elif [ ! -f "${working_dir}/taxa_koDict.json" ]; then
     echo "Error: taxa_koDict.json not found in the working directory. You can rerun make_table module again."; exit 1
 fi
 

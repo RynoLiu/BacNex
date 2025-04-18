@@ -11,6 +11,7 @@ library(ggplot2)
 library(ggpubr)
 library(vegan)
 library(tidyr)
+library(MMUPHin) # batch effect correction
 library(ape) # pcoa
 library(uwot) # umap
 library(Rtsne) # tsne
@@ -108,7 +109,7 @@ ui <- dashboardPage(
                   tags$li(
                     class = "dropdown",
                     style = "padding: 1px; margin-right: 4px;",
-                    tags$span("Ver. 1.1", style = "font-size: 10px; color: black;"))
+                    tags$span("Ver. 2.0", style = "font-size: 10px; color: black;"))
   ),
 
   dashboardSidebar(
@@ -116,6 +117,7 @@ ui <- dashboardPage(
       menuItem("Home", tabName = "Home", icon = icon("home")),
       menuItem("Analysis pipeline", tabName = "Pipeine", icon = icon("chart-simple"),
         menuSubItem("Metadata submission", tabName = "Metadata", icon = icon("angle-right")),
+        menuSubItem("Batch effect", tabName = "BatchEffect", icon = icon("angle-right")),
         menuSubItem("Diversity analysis", tabName = "Diversity", icon = icon("angle-right")),
         menuSubItem("Differental taxa", tabName = "PreLect", icon = icon("angle-right")),
         menuSubItem("Network construction", tabName = "Network", icon = icon("angle-right")),
@@ -197,6 +199,39 @@ ui <- dashboardPage(
       ),
 
       # module 2
+      tabItem("BatchEffect",
+        fluidRow(
+          box(title="Batch effect detection", width=12, status="primary", solidHeader=TRUE,
+            uiOutput("batch_detect_remind"),
+            HTML('<br>'),
+            loadingButton("run_batch_detect", "Get the result", loadingLabel = "Processing...", style="color: #444; background-color: #f4f4f4; border-color: #ddd;"),
+            HTML('<br><br>'),
+            uiOutput("batch_detect_res"),
+            HTML('<br>'),
+            plotOutput("batch_detect_plot", height="600px", width="60%")
+          ) # box
+        ),
+
+        fluidRow(
+          box(title="Batch effect correction", width=12, status="primary", solidHeader=TRUE,
+            uiOutput("batch_correct_info"),
+            HTML('<br>'),
+            loadingButton("run_batch_correct", "Get the result", loadingLabel = "Processing...", style="color: #444; background-color: #f4f4f4; border-color: #ddd;"),
+            HTML('<br><br>'),
+            uiOutput("batch_correct_res"),
+            HTML('<br>'),
+            plotOutput("batch_correct_plot", height="600px", width="60%"),
+            conditionalPanel(
+              condition = "output.batch_correct_plot !== null && output.batch_correct_plot !== undefined",
+              actionButton("batch_correct_save", "Save Results", icon=icon("download")),
+              HTML('<br><br>'),
+              uiOutput("batch_correct_note")
+            )
+          ) # box
+        ) # row
+      ), # tabItem
+
+      # module 3
       tabItem("Diversity",
               card(input_switch("prelect_switch", "Use PreLect features (In the diversity analysis)", value=FALSE, width="700px")),
               fluidRow(
@@ -556,6 +591,10 @@ server <- function(input, output, session) {
   # meta values
   values_meta <- reactiveValues(select_task=NULL, meta_v=NULL, groups=NULL)
 
+  # Batch effect
+  values_batch <- reactiveValues(batch_detect_plot=NULL, batch_correct_plot=NULL,
+                                  batch_correct_table=NULL)
+
   # diversity values
   values_diversity <- reactiveValues(alpha_p=NULL, beta_p=NULL, beta_method=NULL,
                                       com_cohort=NULL, com_level=NULL, com_p=NULL,
@@ -740,6 +779,199 @@ server <- function(input, output, session) {
     })
 
   }) # end of main Event 1
+
+
+  # ===== main Event 2 (Batch effect) =====
+  output$batch_detect_remind <- renderUI({
+    HTML("<b>Please make sure that the column \'Batch\' is in the metadata data frame.</b>")
+  })
+
+  observeEvent(input$run_batch_detect, {
+    taxa_table <- data
+    metadata <- values_meta$meta_v
+
+    # check if metadata or taxa_table is empty
+    if(is.null(metadata) || nrow(metadata) == 0) {
+      showNotification("Error: The metadata is empty.")
+      resetLoadingButton("run_batch_detect")
+      req(FALSE)
+    }
+
+    if(is.null(taxa_table) || nrow(taxa_table) == 0) {
+      showNotification("Error: The taxa_table is empty.")
+      resetLoadingButton("run_batch_detect")
+      req(FALSE)
+    }
+
+    # check if Batch column exists
+    if(!"Batch" %in% colnames(metadata)) {
+      showNotification("Error: The column \'Batch\' is not found in the metadata.")
+      resetLoadingButton("run_batch_detect")
+      req(FALSE)
+    }
+
+    adonis_res <- adonis2(t(taxa_table) ~ Batch, data = metadata, method= "bray")
+    # UMAP
+    U_plot <- umap(t(taxa_table), n_components=2, metric='euclidean')
+    U_plot <- data.frame(UMAP1=as.numeric(U_plot[,1]),
+                        UMAP2=as.numeric(U_plot[,2]),
+                        row.names=rownames(U_plot))
+    U_plot$group <- metadata$Batch
+    plot <- ggscatter(U_plot, x="UMAP1", y="UMAP2", combine=T, color="group") +
+              xlab('UMAP1') + ylab("UMAP2") +
+              theme(panel.background = element_rect(fill = 'transparent'),
+                    panel.grid = element_blank(),
+                    axis.ticks.length = unit(0.4,"lines"),
+                    axis.ticks = element_line(color='black'),
+                    axis.line = element_line(colour = "black"),
+                    legend.title=element_blank(),
+                    legend.position  = 'right',
+                    plot.tag = element_text(size = 9),
+                    plot.tag.position=c(0.95, 0.02),
+                    plot.title = element_text(size = 14, face = "bold", hjust = 0.5))
+    # reactive values
+    values_batch$batch_detect_plot <- plot
+
+    # output
+    output$batch_detect_res <- renderUI({
+      HTML(paste0("R2 = ", round(adonis_res$R2[1], 3), "<br>",
+                  "p-value = ", round(adonis_res$`Pr(>F)`[1], 3)))
+    })
+
+    output$batch_detect_plot <- renderPlot({
+      req(values_batch$batch_detect_plot)
+      values_batch$batch_detect_plot
+    })
+
+    resetLoadingButton("run_batch_detect")
+  }) # end of batch effect detection
+
+  # batch effect correction
+  output$batch_correct_info <- renderUI({
+    tagList(
+      HTML("The batch effect correction is based on the method of <b>MMUPHin</b>. <br>
+            An extra term \\( \\mathit{I} \\) is incorporated to account for the excess zeros commonly observed in microbial abundance data."),
+      HTML("<br>"),
+      tags$div(
+        style = "text-align: left;",
+        tags$span(
+          style = "display: inline-block;",
+          withMathJax(HTML("
+            \\[
+            \\tilde{Y}_{ijp} = \\exp\\left\\{
+            \\frac{
+            Y_{ijp} - \\hat{\\beta}_p X_{ij}' - \\hat{\\gamma}_{ip}^* \\hat{\\sigma}_p
+            }{
+            \\hat{\\delta}_{ip}^*
+            }
+            + \\hat{\\beta}_p X_{ij}'
+            \\right\\} \\times I_{ijp}
+            \\]
+          "))
+        )
+      )
+    )
+  })
+
+  observeEvent(input$run_batch_correct, {
+    taxa_table <- data
+    metadata <- values_meta$meta_v
+    task <- values_meta$select_task
+
+    # check if metadata or taxa_table is empty
+    if(is.null(metadata) || nrow(metadata) == 0) {
+      showNotification("Error: The metadata is empty.")
+      resetLoadingButton("run_batch_correct")
+      req(FALSE)
+    }
+
+    if(is.null(taxa_table) || nrow(taxa_table) == 0) {
+      showNotification("Error: The taxa_table is empty.")
+      resetLoadingButton("run_batch_correct")
+      req(FALSE)
+    }
+
+    # check if Batch column exists
+    if(!"Batch" %in% colnames(metadata)) {
+      showNotification("Error: The column \'Batch\' is not found in the metadata.")
+      resetLoadingButton("run_batch_correct")
+      req(FALSE)
+    }
+
+    rownames(metadata) <- metadata$Accession_ID # match sample names
+    metadata$Batch <- as.factor(metadata$Batch)
+    if(task %in% c("BC", "MC", "Cox")){
+      fit_adjust_batch <- adjust_batch(feature_abd = taxa_table,
+                                  batch = "Batch",
+                                  covariates = "Labels",
+                                  data = metadata,
+                                  control = list(verbose = FALSE, diagnostic_plot=NULL)
+                                  )
+    }
+    else if(task == "Rg") {
+      fit_adjust_batch <- adjust_batch(feature_abd = taxa_table,
+                                  batch = "Batch",
+                                  data = metadata,
+                                  control = list(verbose = FALSE, diagnostic_plot=NULL)
+                                  )
+    }
+    # results
+    table_corrected <- fit_adjust_batch$feature_abd_adj
+    adonis_res <- adonis2(t(table_corrected) ~ Batch, data=metadata, method="bray")
+    # UMAP
+    U_plot <- umap(t(taxa_table), n_components=2, metric='euclidean')
+    U_plot <- data.frame(UMAP1=as.numeric(U_plot[,1]),
+                        UMAP2=as.numeric(U_plot[,2]),
+                        row.names=rownames(U_plot))
+    U_plot$group <- metadata$Batch
+    plot <- ggscatter(U_plot, x="UMAP1", y="UMAP2", combine=T, color="group") +
+              xlab('UMAP1') + ylab("UMAP2") +
+              theme(panel.background = element_rect(fill = 'transparent'),
+                    panel.grid = element_blank(),
+                    axis.ticks.length = unit(0.4,"lines"),
+                    axis.ticks = element_line(color='black'),
+                    axis.line = element_line(colour = "black"),
+                    legend.title=element_blank(),
+                    legend.position  = 'right',
+                    plot.tag = element_text(size = 9),
+                    plot.tag.position=c(0.95, 0.02),
+                    plot.title = element_text(size = 14, face = "bold", hjust = 0.5))
+    # reactive values
+    values_batch$batch_correct_plot <- plot
+    values_batch$batch_correct_table <- table_corrected
+
+    # output
+    output$batch_correct_res <- renderUI({
+      HTML(paste0("R2 = ", round(adonis_res$R2[1], 3), "<br>",
+                  "p-value = ", round(adonis_res$`Pr(>F)`[1], 3)))
+    })
+
+    output$batch_correct_plot <- renderPlot({
+      req(values_batch$batch_correct_plot)
+      values_batch$batch_correct_plot
+    })
+
+    output$batch_correct_note <- renderUI({
+      HTML("<span style='color: gray;'>After saving the corrected file, you may manually replace the original <code>taxa_table.csv</code> in the working directory.</span>")
+    })
+
+    resetLoadingButton("run_batch_correct")
+  }) # end of batch effect correction
+
+  # save files
+  observeEvent(input$batch_correct_save, {
+    # check folder
+    if(!dir.exists(file.path(working_dir, "batch_effect_correction"))) {
+      dir.create(file.path(working_dir, "batch_effect_correction"))
+    } else {
+      showNotification("Batch effect correction directory already exists.")
+      resetLoadingButton("batch_correct_save")
+      req(FALSE)
+    }
+    write.csv(values_batch$batch_correct_table, file=file.path(working_dir, "batch_effect_correction", "taxa_table.csv"), row.names=T)
+    showNotification("Batch effect corrected data saved successfully.")
+    resetLoadingButton("batch_correct_save")
+  }) # end of batch effect correction save
 
 
   # ===== main Event 2 (Diversity) =====
@@ -1386,6 +1618,12 @@ server <- function(input, output, session) {
 
   # PreLect visualize
   observeEvent(input$run_prelect, {
+    # check if metadata exists
+    if(is.null(values_meta$meta_v)){
+      showNotification("Error: Please upload metadata file.")
+      resetLoadingButton("run_prelect")
+      req(FALSE)
+    }
 
     # X_scaled
     PL_dir <- file.path(working_dir, "prelect_dir")

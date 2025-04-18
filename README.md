@@ -45,13 +45,21 @@ This command will automatically install dependencies of BacNex. The YAML files a
 
 #### Manual installation
 
-The [PreLectR](https://github.com/YinchengChen23/PreLectR) need to be installed by the user.
+The following dependencies need to be installed by the user.
+
+1. [PreLectR](https://github.com/YinchengChen23/PreLectR)
 
 ```shell
 $ Rscript -e "install.packages('remotes', repos='https://cloud.r-project.org/')"
 $ Rscript -e "remotes::install_github('YinchengChen23/PreLectR')"
 ```
 
+2. [MMUPHin](https://github.com/biobakery/MMUPHin)
+
+```shell
+$ wget https://anaconda.org/bioconda/bioconductor-mmuphin/1.16.0/download/noarch/bioconductor-mmuphin-1.16.0-r43hdfd78af_0.tar.bz2
+$ conda install /path/to/bioconductor-mmuphin-1.16.0-r43hdfd78af_0.tar.bz2
+```
 
 ## Example data
 We provides the demo files in [data](/data/) for users to quickly demo BacNex as the follows:
@@ -163,10 +171,13 @@ $ bash BacNex.sh app \
 | -b, --browser | The selected browser to open application (google-chrome, firefox). (Default: firefox)|
 
 
-#### *Select the classification task and upload metadata*
+#### *Select the desired task and upload metadata*
 
 PreLect supports four classification tasks, and BacNex can generate the corresponding results. Users can upload metadata in various formats and select a specific task to obtain tailored outcomes.
 
+#### *Batch effect*
+
+We provide a module based on [adonis2](https://search.r-project.org/CRAN/refmans/vegan/html/adonis.html) to assess potential batch effects in the given taxonomy relative abundance table, and integrate MMUPHin to perform batch effect correction when necessary.
 
 #### *Diversity analysis*
 
