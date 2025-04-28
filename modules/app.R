@@ -19,6 +19,8 @@ library(igraph) # network analysis (cluster)
 library(RColorBrewer)
 library(patchwork)
 library(PreLectR)
+library(parallel) # multi process
+library(pROC) # auc
 
 
 # Rscript -e "shiny::runApp('${app_dir}', launch.browser=function(url) { utils::browseURL(url, browser='/usr/bin/google-chrome') })"
@@ -27,7 +29,7 @@ library(PreLectR)
 working_dir <- Sys.getenv("WORKING_DIR")
 script_dir <- Sys.getenv("SCRIPT_DIR")
 threads <- Sys.getenv("THREADS")
-# working_dir <- "~/Documents/CRC_project/100_312crc_570control/time2event_project"
+# working_dir <- "~/Documents/CRC_project/100_312crc_570control/reg_project_312crc"
 # script_dir <- "~/Documents/vscode/files/BacNex/modules"
 # threads <- 5
 
@@ -98,7 +100,32 @@ assignModule <- function(nodeT, module, Method, cutoff) { # assign the graph par
   return(nodeT)
 }
 
-
+# C-index function
+c_index <- function(time, event, risk) {
+  concordant <- 0
+  permissible <- 0
+  n <- length(time)
+  for (i in 1:(n - 1)) {
+    for (j in (i + 1):n) {
+      # i is Event, earlier than j
+      if (event[i] == 1 && time[i] < time[j]) {
+        permissible <- permissible + 1
+        if (risk[i] > risk[j]) {
+          concordant <- concordant + 1
+        }
+      }
+      # j is Event, earlier than i
+      if (event[j] == 1 && time[j] < time[i]) {
+        permissible <- permissible + 1
+        if (risk[j] > risk[i]) {
+          concordant <- concordant + 1
+        }
+      }
+    }
+  }
+  if (permissible == 0) return(NA)
+  return(concordant / permissible)
+}
 
 
 
@@ -109,7 +136,7 @@ ui <- dashboardPage(
                   tags$li(
                     class = "dropdown",
                     style = "padding: 1px; margin-right: 4px;",
-                    tags$span("Ver. 2.0", style = "font-size: 10px; color: black;"))
+                    tags$span("Ver. 2.1", style = "font-size: 10px; color: black;"))
   ),
 
   dashboardSidebar(
@@ -387,6 +414,7 @@ ui <- dashboardPage(
                     HTML('<br><br>'),
                     h4(textOutput("graph_f_title")),
                     textOutput("filter_note"),
+                    textOutput("filter_note2"),
                     fluidRow(
                       column(6, uiOutput("edge_f_ui")),
                       column(6, uiOutput("node_f_ui"))
@@ -613,7 +641,7 @@ server <- function(input, output, session) {
   values_network_c <- reactiveValues(edge=NULL)
 
   # Network_f values
-  values_network_f <- reactiveValues(network=NULL, node=NULL, edge=NULL)
+  values_network_f <- reactiveValues(network=NULL, node=NULL, edge=NULL, filter_prop=NULL)
 
   # pathway values
   values_pathway <- reactiveValues(target_label_p=NULL, pathway_table=NULL, pathway_plot=NULL,
@@ -633,6 +661,7 @@ server <- function(input, output, session) {
     meta <- reactive({
       req(input$meta_file)
       meta <- read.csv(input$meta_file$datapath, header = T, stringsAsFactors = F)
+      meta <- meta[order(meta$Accession_ID, decreasing=FALSE), ] # order by Accession_ID
       meta
     })
 
@@ -1505,7 +1534,7 @@ server <- function(input, output, session) {
   observeEvent(input$tuning_run, {
 
     meta_v <- values_meta$meta_v
-    sp <- intersect(colnames(data),  meta_v$Accession_ID)
+    sp <- intersect(colnames(data), meta_v$Accession_ID)
     X_raw <- data[, sp]
 
     meta_ <- meta_v
@@ -1533,27 +1562,163 @@ server <- function(input, output, session) {
     # create dir
     save_dir = file.path(working_dir, 'prelect_dir')
 
-
+    # prelect main line
     if(values_meta$select_task == 'BC'){
       lrange <- AutoScanning(X_scaled, X_raw, sub_meta$Labels, task="classification", step=step_, max_iter=mi_, lr=lr_)
       tuning_res <- LambdaTuning(X_scaled, X_raw, sub_meta$Labels, lrange, outpath=save_dir, max_iter=mi_, lr=lr_)
-    }
+
+      # adjusted auc
+      d1 <- read.csv(file.path(save_dir, "TuningResult.csv"), row.names=1)
+      pvlvec <- GetPrevalence(X_raw)
+      all_labels <- unique(sub_meta$Labels)
+      y_true_bc <- ifelse(sub_meta$Labels == all_labels[1], 0, 1)
+      process_cal_bc <- function(i) {
+        log_lmbd <- d1$loglmbd[i]
+        origin_lmbd <- exp(log_lmbd)
+        feat_num <- d1$Feature_number[i]
+        PLres <- PreLect(X_scaled, pvlvec, sub_meta$Labels, lambda=origin_lmbd, task="classification")
+        best_w <- PLres$coef_table$coef
+
+        # test
+        y_score <- as.vector(t(X_scaled) %*% best_w)
+        y_prob <- 1 / (1 + exp(-y_score))
+        y_pred <- ifelse(y_prob >= 0.5, 1, 0)
+        roc_curve <- roc(y_true_bc, y_prob, levels=c(0,1), direction='<')
+        auc_value <- auc(roc_curve)
+        return(data.frame(AUC=auc_value, llmbd=log_lmbd, feat_number=feat_num))
+      }
+      results <- mclapply(seq_len(nrow(d1)), process_cal_bc, mc.cores=threads)
+      metrics <- do.call(rbind, results) # merge data frame
+
+      # replacement
+      for(i in seq(nrow(d1))) {
+        llmbd <- d1$loglmbd[i]
+        feat_num <- d1$Feature_number[i]
+        val <- metrics[metrics$llmbd == llmbd & metrics$feat_number == feat_num, "AUC"]
+        final_val <- if (length(val) > 0 && !is.na(val)) val else 0.5
+        d1$AUC[d1$loglmbd == llmbd & d1$Feature_number == feat_num] <- final_val
+      }
+      write.csv(d1, file=file.path(save_dir, "TuningResult.csv"), row.names=FALSE)
+    } # end of BC
+
 
     if(values_meta$select_task == 'MC') {
       lrange <- AutoScanningMultiClass(X_scaled, X_raw, sub_meta$Labels, step=step_, max_iter=mi_, lr=lr_)
       tuning_res <- LambdaTuningMultiClass(X_scaled, X_raw, sub_meta$Labels, lrange, outpath=save_dir, max_iter=mi_, lr=lr_)
-    }
+
+      # adjusted auc
+      d1 <- read.csv(file.path(save_dir, "TuningResult.csv"), row.names=1)
+      d1$Feature_number <- floor(d1$Feature_number) # remove float
+      all_labels <- unique(sub_meta$Labels)
+      process_cal_mc <- function(i) {
+        log_lmbd <- d1$loglmbd[i]
+        origin_lmbd <- exp(log_lmbd)
+        feat_num <- d1$Feature_number[i]
+        PLres <- PreLectMultiClass(X_scaled, X_raw, sub_meta$Labels, lambda=origin_lmbd)
+
+        auc_vec <- sapply(all_labels, function(catg) {
+          best_w <- PLres$coef_table[[paste0("coef_", catg)]]
+          y_score <- as.vector(t(X_scaled) %*% best_w)
+          y_prob <- 1 / (1 + exp(-y_score))
+          y_true_mc <- ifelse(sub_meta$Labels == catg, 1, 0)
+
+          auc_val <- tryCatch({
+            roc_curve <- roc(y_true_mc, y_prob, levels=c(0,1), direction="<")
+            auc(roc_curve)
+          }, error = function(e) NA)
+
+          return(auc_val)
+        })
+        mean_auc <- mean(auc_vec, na.rm=TRUE)
+        return(data.frame(mean_AUC=mean_auc, llmbd=log_lmbd, feat_number=feat_num))
+      }
+      results <- mclapply(seq_len(nrow(d1)), process_cal_mc, mc.cores=threads)
+      metrics <- do.call(rbind, results) # merge data frame
+
+      # replacement
+      for(i in seq(nrow(d1))) {
+        llmbd <- d1$loglmbd[i]
+        feat_num <- d1$Feature_number[i]
+        val <- metrics[metrics$llmbd == llmbd & metrics$feat_number == feat_num, "mean_AUC"]
+        final_val <- if (length(val) > 0 && !is.na(val)) val else 0.5
+        d2$meanAUC[d1$loglmbd == llmbd & d1$Feature_number == feat_num] <- final_val
+      }
+      write.csv(d1, file=file.path(save_dir, "TuningResult.csv"), row.names=FALSE)
+
+    } # end of MC
+
 
     if(values_meta$select_task == 'Rg') {
       lrange <- AutoScanning(X_scaled, X_raw, sub_meta$Labels, task="regression", step=step_, max_iter=mi_, lr=lr_)
       tuning_res <- LambdaTuning(X_scaled, X_raw, sub_meta$Labels, task="regression", lrange, outpath=save_dir, max_iter=mi_, lr=lr_)
-    }
+
+      # adjusted r2
+      d1 <- read.csv(file.path(save_dir, "TuningResult.csv"), row.names=1)
+      pvlvec <- GetPrevalence(X_raw)
+      y_true_reg <- sub_meta$Labels
+      process_cal_reg <- function(i) {
+        log_lmbd <- d1$loglmbd[i]
+        feat_num <- d1$Feature_number[i]
+        origin_lmbd <- exp(log_lmbd)
+        PLres <- PreLect(X_scaled, pvlvec, sub_meta$Labels, lambda=origin_lmbd, task="regression")
+        best_w <- PLres$coef_table$coef
+
+        # test
+        y_pred <- as.vector(as.matrix(t(X_scaled)) %*% best_w)
+        spearman <- cor.test(y_true_reg, y_pred, method="spearman")
+        r2 <- as.numeric(spearman$estimate)^2
+        return(data.frame(R2=r2, llmbd=log_lmbd, feat_number=feat_num))
+      }
+      results <- mclapply(seq_len(nrow(d1)), process_cal_reg, mc.cores=threads)
+      metrics <- do.call(rbind, results) # merge data
+
+      # replacement
+      for(i in seq(nrow(d1))){
+        llmbd <- d1$loglmbd[i]
+        feat_num <- d1$Feature_number[i]
+        val <- metrics[metrics$llmbd == llmbd & metrics$feat_number == feat_num, "R2"]
+        final_val <- if (length(val) > 0 && !is.na(val)) val else 0
+        d1$R2[d1$loglmbd == llmbd & d1$Feature_number == feat_num] <- final_val
+      }
+      write.csv(d1, file=file.path(save_dir, "TuningResult.csv"), row.names=FALSE)
+
+    } # end of Reg
+
 
     if(values_meta$select_task == 'Cox') {
       lrange <- AutoScanningCoxPH(X_scaled, X_raw, sub_meta$Event, sub_meta$Duration, step=step_, max_iter=mi_, lr=lr_)
       tuning_res <- LambdaTuningCoxPHParallel(X_scaled, X_raw, sub_meta$Event, sub_meta$Duration, lrange,
                                               outpath=save_dir, max_iter=mi_, lr=lr_, n_cores=threads)
-    }
+
+      # adjusted c-index
+      d1 <- read.csv(file.path(save_dir, "TuningResult.csv"), row.names=1)
+      pvlvec <- GetPrevalence(X_raw)
+      process_cal_Cox <- function(i) {
+        log_lmbd <- d1$loglmbd[i]
+        feat_num <- d1$Feature_number[i]
+        origin_lmbd <- exp(log_lmbd)
+        PLres <- PreLectCoxPH(X_scaled, pvlvec, sub_meta$Event, sub_meta$Duration, lambda=origin_lmbd)
+        best_w <- PLres$coef_table$coef
+
+        # test
+        risk <- exp(t(X_scaled) %*% best_w)
+        ci <- c_index(sub_meta$Duration, sub_meta$Event, risk)
+        return(data.frame(CI=ci, llmbd=log_lmbd, feat_number=feat_num))
+      }
+      results <- mclapply(seq_len(nrow(d1)), process_cal_Cox, mc.cores=threads)
+      metrics <- do.call(rbind, results) # merge data frame
+
+      # replacement
+      for(i in seq(nrow(d1))){
+        llmbd <- d1$loglmbd[i]
+        feat_num <- d1$Feature_number[i]
+        val <- metrics[metrics$llmbd == llmbd & metrics$feat_number == feat_num, "CI"]
+        final_val <- if (length(val) > 0 && !is.na(val)) val else 0
+        d1$CI[d1$loglmbd == llmbd & d1$Feature_number == feat_num] <- final_val
+      }
+      write.csv(d1, file=file.path(save_dir, "TuningResult.csv"), row.names=FALSE)
+
+    } # end of Cox
 
     # saved X_scaled in prelect_dir
     write.csv(X_scaled, file=file.path(save_dir, "dataStd.csv"), row.names=T)
@@ -1572,7 +1737,7 @@ server <- function(input, output, session) {
     save_dir = file.path(working_dir, 'prelect_dir')
 
     if(dir.exists(save_dir)){
-      d1 <- read.csv(file.path(save_dir, 'TuningResult.csv'), row.names=1)
+      d1 <- read.csv(file.path(save_dir, 'TuningResult.csv'))
       d2 <- read.csv(file.path(save_dir,'Pvl_distribution.csv'))
       lmbd_picking <- LambdaDecision(d1, d2, maxdepth=maxdepth_, minbucket=minbucket_)
 
@@ -1669,7 +1834,7 @@ server <- function(input, output, session) {
 
     # stored reactive values
     values_runprelect$PLres <- visual_table()
-    # saved res in tmp_files
+    # saved prelect visual table in tmp_files
     write.csv(values_runprelect$PLres, file=file.path(tmp_dir, 'PLres.csv'), row.names=T)
 
     numeric_cols <- colnames(values_runprelect$PLres)[sapply(values_runprelect$PLres, is.numeric)]
@@ -1793,11 +1958,18 @@ server <- function(input, output, session) {
 
     # read table
     network_f_dir <- file.path(working_dir, "tmp_files")
+    PLres <- read.csv(file.path(working_dir, "prelect_dir", "PLres.csv"))
+    all_features <- PLres$FeatName
     node_f <- read.csv(file.path(tmp_dir, paste0(target_label_f, "_node_f.csv")))
+    filter_features <- node_f$id
     edge_f <- read.csv(file.path(tmp_dir, paste0(target_label_f, "_edge_f.csv")))
+    # selected proportion
+    filter_prop <- round( ( length(filter_features) / length(all_features) )*100, digits=2)
+
     # Reactive values
     values_network_f$node <- node_f
     values_network_f$edge <- edge_f
+    values_network_f$filter_prop <- filter_prop
 
     if(rank == 'none') {
       visnet <- visNetwork(node_f, edge_f, height="800px") %>%
@@ -1849,6 +2021,10 @@ server <- function(input, output, session) {
 
     output$filter_note <- renderText({
       paste0("( by PreLect weight : ", pl_weight, ", edge weight : ", edge_weight, " )")
+    })
+
+    output$filter_note2 <- renderText({
+      paste0("Proportion of retained PreLect features: ", length(filter_features), " ( ", filter_prop, "% )")
     })
 
     # left panel
@@ -2001,12 +2177,18 @@ server <- function(input, output, session) {
                   formatSignif(columns = c('step1_stats', 'step1_p_adj', 'step2_stats', 'step2_p_adj'), digits = 3)
     })
 
-    output$path_plot <- renderPlot(
-      values_pathway$pathway_plot,
-      width = function() input$path_bar_width,
-      height = function() input$path_bar_height,
-      res = 100
-    )
+    if( !is.null(values_pathway$pathway_plot) ) {
+      output$path_plot <- renderPlot(
+        values_pathway$pathway_plot,
+        width = function() input$path_bar_width,
+        height = function() input$path_bar_height,
+        res = 100
+      )
+    } else {
+      output$path_plot <- renderPlot({ NULL })
+    }
+
+
 
     output$bar_note <- renderUI({
       if (is.null(values_pathway$pathway_plot)) {
@@ -2708,12 +2890,16 @@ server <- function(input, output, session) {
                   formatSignif(columns = c('step1_stats', 'step1_p_adj', 'step2_stats', 'step2_p_adj'), digits = 3)
     })
 
-    output$path_clust_plot <- renderPlot(
-      values_network_netA$netA_clust_path_plot,
-      width = function() input$path_clust_bar_width,
-      height = function() input$path_clust_bar_height,
-      res = 100
-    )
+    if( !is.na(output$path_clust_plot) ) {
+      output$path_clust_plot <- renderPlot(
+        values_network_netA$netA_clust_path_plot,
+        width = function() input$path_clust_bar_width,
+        height = function() input$path_clust_bar_height,
+        res = 100
+      )
+    } else {
+      output$path_clust_plot <- renderPlot({ NULL })
+    }
 
     output$netA_path_bar_note <- renderUI({
       if (is.null(values_network_netA$netA_clust_path_plot)) {
