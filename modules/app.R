@@ -2,6 +2,7 @@ library(shiny)
 library(shinydashboard)
 library(shinyjs)
 library(shinycssloaders)
+library(shinyWidgets)
 library(bslib)
 library(visNetwork)
 library(shinyFeedback)
@@ -29,7 +30,7 @@ library(pROC) # auc
 working_dir <- Sys.getenv("WORKING_DIR")
 script_dir <- Sys.getenv("SCRIPT_DIR")
 threads <- Sys.getenv("THREADS")
-# working_dir <- "~/Documents/CRC_project/100_312crc_570control/reg_project_312crc"
+# working_dir <- "~/Documents/Pipeline_test/app_reg_test"
 # script_dir <- "~/Documents/vscode/files/BacNex/modules"
 # threads <- 5
 
@@ -136,7 +137,7 @@ ui <- dashboardPage(
                   tags$li(
                     class = "dropdown",
                     style = "padding: 1px; margin-right: 4px;",
-                    tags$span("Ver. 2.1", style = "font-size: 10px; color: black;"))
+                    tags$span("Ver. 3.0", style = "font-size: 10px; color: black;"))
   ),
 
   dashboardSidebar(
@@ -260,7 +261,7 @@ ui <- dashboardPage(
 
       # module 3
       tabItem("Diversity",
-              card(input_switch("prelect_switch", "Use PreLect features (In the diversity analysis)", value=FALSE, width="700px")),
+              card( prettySwitch(inputId="prelect_switch", label="Use PreLect features (In the diversity analysis)", fill=FALSE, status="primary") ),
               fluidRow(
                 box(title = "Alpha Diversity", width=12, status="primary", solidHeader = TRUE,
                     fluidRow(
@@ -379,14 +380,26 @@ ui <- dashboardPage(
                  box(title="Network construction", width=12, status="primary", solidHeader = TRUE,
                     fluidRow(
                       column(3, selectInput("label_selector", label="Cohort", choices="")),
-                      column(3, numericInput('adj_p', label='p-value to decide taxa connections', value=0.05, min=0, max=0.05, step=0.01))
+                      column(3, numericInput('adj_p', label='p-value to decide taxa connections', value=0.05, min=0, max=0.05, step=0.01)),
+                      column(3, selectInput("node_size", label="Node size", choices=c('Fold-change'='FC', 'Degree'='degree', 'KO counts'='KO'), selected='FC')),
+                      column(3, selectInput("select_rank", label="colored by group", choices=c('Phylum'='phylum', 'Class'='class',
+                                                                                               'Order'='order', "Family"='family', 'Genus'='genus', 'No color'='none'), selected='phylum'))
+                    ),
+                    fluidRow(
+                      column(3, sliderInput("size_range", "Range of node size", min = 0.1, max = 100, value = c(10,40), step=1)),
+                      column(3, sliderInput("width_range", "Range of edge width", min = 0.1, max = 100, value = c(0.1,10), step=1)),
                     ),
                     loadingButton("make_network_button", "Generate network", loadingLabel = "Processing...", style="color: #444; background-color: #f4f4f4; border-color: #ddd;"),
                     HTML('<br><br>'),
                     h4(textOutput("graph_title")),
-                    div(DT::dataTableOutput("edge_table")),
+                    fluidRow(
+                      column(6, uiOutput("edge_ui")),
+                      column(6, uiOutput("node_ui"))
+                    ),
+                    HTML('<br>'),
+                    visNetworkOutput("network_c_graph", width = "100%", height = "800px"),
                     conditionalPanel(
-                      condition = "output.edge_table !== null && output.edge_table !== undefined",
+                      condition = "output.network_c_graph !== null && output.network_c_graph !== undefined",
                       actionButton("network_save", "Save Results", icon=icon("download")))
                     ) # box
               ) # row
@@ -398,15 +411,6 @@ ui <- dashboardPage(
                 box(title="Network filter", width=12, status="primary", solidHeader = TRUE,
                     fluidRow(
                       column(3, selectInput("label_selector_f", label="Cohort", choices="")),
-                      column(3, selectInput("node_size", label="Node size", choices=c('Fold-change'='FC', 'Degree'='degree', 'KO counts'='KO'), selected='FC')),
-                      column(3, selectInput("select_rank", label="colored by group", choices=c('Phylum'='phylum', 'Class'='class',
-                                'Order'='order', "Family"='family', 'Genus'='genus', 'No color'='none'), selected='phylum'))
-                    ),
-                    fluidRow(
-                      column(3, sliderInput("size_range", "Range of node size", min = 0.1, max = 100, value = c(10,40), step=1)),
-                      column(3, sliderInput("width_range", "Range of edge width", min = 0.1, max = 100, value = c(0.1,10), step=1)),
-                    ),
-                    fluidRow(
                       column(3, numericInput('PL_w', label='PreLect model : Weight', value=0.5, min=0, max=100, step=0.1)),
                       column(3, numericInput('edge_w', label='Edge weight : Odds ratio', value=1, min=0, max=100, step=1))
                     ),
@@ -433,6 +437,7 @@ ui <- dashboardPage(
               fluidRow(
                 box(
                   title="Pathway analysis", width=12, status="primary", solidHeader = TRUE,
+                  prettySwitch(inputId="switch_in_pathway", label="Apply filtered network", fill=FALSE, status="primary"),
                   fluidRow(
                     column(3, selectInput("label_selector_p", label="Cohort", choices="" )),
                     column(3, numericInput('pathway_p', label='Adjusted p_value threshold', value=0.05, min=0, max=100, step=0.01))
@@ -486,6 +491,7 @@ ui <- dashboardPage(
               fluidRow(
                 box(
                   title="Network cluster", width=12, status="primary", solidHeader = TRUE,
+                  prettySwitch(inputId="switch_in_netA", label="Apply filtered network", fill=FALSE, status="primary"),
                   fluidRow(
                     column(3, selectInput("label_selector_netA", label="Cohort", choices="" )),
                     column(3,
@@ -638,7 +644,7 @@ server <- function(input, output, session) {
   values_runprelect <- reactiveValues(PLres=NULL)
 
   # Network_c values
-  values_network_c <- reactiveValues(edge=NULL)
+  values_network_c <- reactiveValues(edge=NULL, node=NULL, visnet=NULL)
 
   # Network_f values
   values_network_f <- reactiveValues(network=NULL, node=NULL, edge=NULL, filter_prop=NULL)
@@ -1877,9 +1883,19 @@ server <- function(input, output, session) {
     select_task <- values_meta$select_task
     target_label <- input$label_selector
     adj_p <- input$adj_p
+
+    # visualize options
+    size <- input$node_size
+    rank <- input$select_rank
+    size_range_min <- input$size_range[1]
+    size_range_max <- input$size_range[2]
+    width_range_min <- input$width_range[1]
+    width_range_max <- input$width_range[2]
+
     # call py script
     exit_code <- system(paste("python", file.path(script_dir, "network_construction.py"),
-                              working_dir, target_label, adj_p, threads, select_task))
+                              working_dir, target_label, adj_p, threads, select_task, size, rank,
+                              size_range_min, size_range_max, width_range_min, width_range_max))
     if( exit_code != 0){
       showNotification("Error occurred in network construction. Please check log in terminal.")
       resetLoadingButton("make_network_button")
@@ -1889,18 +1905,93 @@ server <- function(input, output, session) {
     # read table
     network_con_dir <- file.path(working_dir, "tmp_files")
     edge <- read.csv(file.path(tmp_dir, paste0(target_label, "_edge.csv")))
+    node <- read.csv(file.path(tmp_dir, paste0(target_label, "_node.csv")))
     # Reactive values
     values_network_c$edge <- edge
+    values_network_c$node <- node
+
+    # visnet
+    if(rank == 'none') {
+      visnet <- visNetwork(node, edgee, height="800px") %>%
+        visIgraphLayout(layout="layout_with_fr") %>%
+        visInteraction(navigationButtons = TRUE) %>%
+        visNodes(
+          shape = "dot",
+          color = list(
+            background = "#0085AF",
+            border = "#013848",
+            highlight = "yellow"),
+          font = list(size = 20)
+        ) %>%
+        visEdges(
+          shadow = FALSE,
+          color = list(color = "#0085AF", highlight = "#C62F4B")
+        ) %>%
+        visOptions(highlightNearest = TRUE, nodesIdSelection = TRUE)
+
+    } else {
+      # deal with colored by groups
+      lnodes <- data.frame(label=unique(node$group), shape=c("dot"), color=col_vector[1:length(unique(node$group))])
+      color_v <- lnodes$color[match(node$group, lnodes$label)]
+      node_to_plot <- node; node_to_plot$color <- color_v
+      visnet <- visNetwork(node_to_plot, edge, height="800px") %>%
+        visIgraphLayout(layout="layout_with_fr") %>%
+        visInteraction(navigationButtons = TRUE) %>%
+        visNodes(
+          shape = "dot",
+          color = list(
+            highlight = "yellow"),
+          font = list(size = 20)
+        ) %>%
+        visEdges(
+          shadow = FALSE,
+          color = list(color = "#0085AF", highlight = "#C62F4B")
+        ) %>%
+        visOptions(highlightNearest = TRUE, nodesIdSelection = TRUE) %>%
+        visLegend(useGroups = F, width=0.2, addNodes = lnodes, position = "right")
+    }
+    # reactive Values
+    values_network_c$visnet <- visnet
 
     # visualize
     output$graph_title <- renderText({
-      paste("Whole", target_label, "tendency network")
+      paste("Featured", target_label, "tendency network")
     })
 
     output$edge_table <- DT::renderDT({
       datatable(values_network_c$edge, options=list(scrollX=T, columnDefs =list(list(visible=FALSE, targets=c(-1))))) %>%
         formatSignif(columns = c('weight', 'p', 'p_adj'), digits = 3)
     })
+
+    # left panel
+    output$edge_ui <- renderUI({
+      tagList(
+        HTML("<h4><b>Edge</b></h4>"),
+        DT::dataTableOutput("edge_table")
+      )
+    })
+
+    # right panel
+    output$node_ui <- renderUI({
+      tagList(
+        HTML("<h4><b>Node</b></h4>"),
+        DT::dataTableOutput("node_table")
+      )
+    })
+
+    output$edge_table <- DT::renderDT({
+      datatable(values_network_c$edge, options=list(scrollX=T, columnDefs=list(list(visible=FALSE, targets=c(6,7))))) %>%
+        formatSignif(columns = c('weight', 'p', 'p_adj'), digits = 3)
+    })
+
+    output$node_table <- DT::renderDT({
+      datatable(values_network_c$node, options=list(scrollX=T, columnDefs=list(list(visible=FALSE, targets=c(3,7))))) %>%
+        formatSignif(columns = c('raw_value'), digits = 3)
+    })
+
+    output$network_c_graph <- renderVisNetwork({
+      visnet
+    }) # end of renderVisNetwork
 
     resetLoadingButton("make_network_button")
   }) # end of Network_construction
@@ -1913,11 +2004,15 @@ server <- function(input, output, session) {
       dir.create(net_dir)
     }
 
-    if(!file.exists(file.path(net_dir, paste0(target_label, "_edge.csv")))) {
-      file.copy(from=file.path(tmp_dir, paste0(target_label, "_edge.csv")), to=net_dir)
+    save_dir <- file.path(net_dir, target_label)
+    if(!dir.exists(save_dir)) {
+      dir.create(save_dir)
+      visSave(values_network_c$visnet, file = file.path(save_dir, paste0(target_label, ".html")))
+      file.copy(from=file.path(tmp_dir, paste0(target_label, "_edge.csv")), to=save_dir)
+      file.copy(from=file.path(tmp_dir, paste0(target_label, "_node.csv")), to=save_dir)
       showNotification("Network is saved in network_construction successfully!")
     } else {
-      showNotification(paste0(target_label, " network already exists. Cannot save the results."))
+      showNotification(paste0(target_label, " network results already exist. Cannot save the results."))
       req(FALSE)
     }
   }) # end of network_save
@@ -1927,18 +2022,10 @@ server <- function(input, output, session) {
   observeEvent(input$filter_network_button, {
     pl_weight <- input$PL_w
     edge_weight <- input$edge_w
-    size <- input$node_size
-    rank <- input$select_rank
     target_label_f <- input$label_selector_f
-    size_range_min <- input$size_range[1]
-    size_range_max <- input$size_range[2]
-    width_range_min <- input$width_range[1]
-    width_range_max <- input$width_range[2]
     select_task <- values_meta$select_task
 
-
-
-    if(!file.exists(file.path(working_dir, "network_construction", paste0(target_label_f, "_edge.csv")))){
+    if(!dir.exists(file.path(working_dir, "network_construction", target_label_f))){
       showNotification(
         paste0("Cannot find the networt construction result of ", target_label_f, ". Please run network construction first."))
         resetLoadingButton("filter_network_button")
@@ -1948,8 +2035,7 @@ server <- function(input, output, session) {
     # main
     # call py script
     exit_code <- system(paste("python", file.path(script_dir, "network_filter.py"),
-                          working_dir, target_label_f, size, pl_weight, edge_weight, rank,
-                          size_range_min, size_range_max, width_range_min, width_range_max, select_task))
+                          working_dir, target_label_f, pl_weight, edge_weight, select_task))
     if( exit_code != 0){
       showNotification("Error occurred in network filter. Maybe too large threshold leads to the empty network. Please check log in terminal.")
       resetLoadingButton("filter_network_button")
@@ -1971,7 +2057,7 @@ server <- function(input, output, session) {
     values_network_f$edge <- edge_f
     values_network_f$filter_prop <- filter_prop
 
-    if(rank == 'none') {
+    if(!"group" %in% colnames(node_f)) {
       visnet <- visNetwork(node_f, edge_f, height="800px") %>%
         visIgraphLayout(layout="layout_with_fr") %>%
         visInteraction(navigationButtons = TRUE) %>%
@@ -2101,19 +2187,32 @@ server <- function(input, output, session) {
     target_label_p <- input$label_selector_p
     values_pathway$target_label_p <- target_label_p
     adj_p <- input$pathway_p
+    switch_in_pathway <- input$switch_in_pathway
 
-    # check network filter table
-    if(!file.exists(file.path(working_dir, "network_filter", target_label_p, paste0(target_label_p, "_edge_f.csv")))){
-      showNotification(
-        paste0("Cannot find the network filter result of ", target_label_p, ". Please run network filter first."))
+    if(switch_in_pathway) {
+      # check network filter table
+      if(!file.exists(file.path(working_dir, "network_filter", target_label_p, paste0(target_label_p, "_edge_f.csv")))){
+        showNotification(
+          paste0("Cannot find the network filter result of ", target_label_p, ". Please run network filter first."))
+          resetLoadingButton("pathway_button")
+          req(FALSE)
+      }
+    } else {
+      # check network full feature table
+      if(!file.exists(file.path(working_dir, "network_construction", target_label_p, paste0(target_label_p, "_edge.csv")))){
+        showNotification(
+          paste0("Cannot find the network construction result of ", target_label_p, ". Please run network construction first."))
         resetLoadingButton("pathway_button")
         req(FALSE)
+      }
     }
 
     # main
     # call py script
+    switch_para <- ""
+    if(switch_in_pathway) {switch_para <- "on"} else { switch_para <- "off" }
     exit_code <- system(paste("python", file.path(script_dir, "pathway_analysis.py"),
-                          working_dir, target_label_p, adj_p, threads))
+                          working_dir, target_label_p, adj_p, threads, switch_para))
     if( exit_code != 0){
       showNotification("Error occurred in pathway analysis. Please check log in terminal.")
       resetLoadingButton("pathway_button")
@@ -2209,20 +2308,28 @@ server <- function(input, output, session) {
 
   # save pathway save button
   observeEvent(input$pathway_save, {
+    switch_in_pathway <- input$switch_in_pathway
     target_label_p <- values_pathway$target_label_p
     pathway_dir <- file.path(working_dir, "pathway_analysis")
     if(!dir.exists(pathway_dir)){
       dir.create(pathway_dir)
     }
 
-    if(!file.exists(file.path(pathway_dir, paste0(target_label_p, "_pathway.csv")))){
-      file.copy(from=file.path(tmp_dir, paste0(target_label_p, "_pathway.csv")), to=pathway_dir)
-      ggsave(filename=file.path(pathway_dir, paste0(target_label_p, "_pathway_plot.png")),
+    if(switch_in_pathway) {
+      save_dir <- file.path(pathway_dir, paste0("filtered_", target_label_p))
+    } else {
+      save_dir <- file.path(pathway_dir, target_label_p)
+    }
+
+    if(!dir.exists(save_dir)){
+      dir.create(save_dir)
+      file.copy(from=file.path(tmp_dir, paste0(target_label_p, "_pathway.csv")), to=save_dir)
+      ggsave(filename=file.path(save_dir, paste0(target_label_p, "_pathway_plot.png")),
               plot=values_pathway$pathway_plot, bg="white",
               width=input$path_bar_width, height=input$path_bar_height, units="px", dpi=100)
       showNotification("Result is saved in pathway_analysis successfully!")
     } else {
-      showNotification(paste0("Directory of ", target_label_p, " already exists. Cannot save the result."))
+      showNotification("Directory already exists. Cannot save the result.")
       req(FALSE)
     }
 
@@ -2230,26 +2337,53 @@ server <- function(input, output, session) {
 
   # pathway sub-network
   observeEvent(input$pathway_net_button, {
+    switch_in_pathway <- input$switch_in_pathway
     target_label <- input$label_selector_path_net
     values_pathway$label_selector_path_net <- target_label
     target_pathway <- input$map_id
 
-    # check network filter results
-    if(!dir.exists(file.path(working_dir, "network_filter", target_label))) {
-      showNotification(
-        paste0("Cannot find the filtered sub-network result of ", target_label, ". Please run network filter first."))
+
+    if(switch_in_pathway) {
+      # check network filter results
+      if(!dir.exists(file.path(working_dir, "network_filter", target_label))) {
+        showNotification(
+          paste0("Cannot find the filtered sub-network result of ", target_label, ". Please run network filter first."))
         resetLoadingButton("pathway_net_button")
         req(FALSE)
+      }
+
+    } else {
+
+      if(!dir.exists(file.path(working_dir, "network_construction", target_label))) {
+        showNotification(
+          paste0("Cannot find the network construction result of ", target_label, ". Please run network contruction first."))
+        resetLoadingButton("pathway_net_button")
+        req(FALSE)
+      }
     }
 
     # call py script
+    switch_para <- ""
+    if(switch_in_pathway) {switch_para <- "on"} else { switch_para <- "off" }
     exit_code <- system(paste("python", file.path(script_dir, "path_net.py"),
-                          working_dir, target_pathway, target_label))
+                              working_dir, target_pathway, target_label, switch_para))
     if(exit_code != 0){
       showNotification("Error occurred in pathway sub-network visualization. Please check log in terminal.")
       resetLoadingButton("pathway_net_button")
       req(FALSE)
     }
+
+    # read table
+    path_edge <- read.csv(file.path(tmp_dir, paste0(target_label, "_", target_pathway, "_edge.csv")))
+    path_node <- read.csv(file.path(tmp_dir, paste0(target_label, "_", target_pathway, "_node.csv")))
+    # rds file
+    ko_map <- readRDS(file.path(script_dir, "whole_komap", "total_KO_pathway.rds"))
+    annotated_name <- ko_map[ko_map$mapid == target_pathway, "pathway"][1]
+
+    # stored in reactive values
+    values_pathway$path_edge <- path_edge
+    values_pathway$path_node <- path_node
+
 
     # read table
     path_edge <- read.csv(file.path(tmp_dir, paste0(target_label, "_", target_pathway, "_edge.csv")))
@@ -2346,13 +2480,19 @@ server <- function(input, output, session) {
 
   # save pathway sub-network
   observeEvent(input$pathway_net_save, {
+    switch_in_pathway <- input$switch_in_pathway
     target_label <- values_pathway$label_selector_path_net
     target_pathway <- input$map_id
     path_net_dir <- file.path(working_dir, "pathway_analysis")
     if(!dir.exists(path_net_dir)){
       dir.create(path_net_dir)
     }
-    save_dir <- file.path(path_net_dir, paste0(target_label, "_", target_pathway))
+
+    if(switch_in_pathway) {
+      save_dir <- file.path(path_net_dir, paste0("filtered_", target_label, "_", target_pathway))
+    } else {
+      save_dir <- file.path(path_net_dir, paste0(target_label, "_", target_pathway))
+    }
 
     if (!dir.exists(save_dir)){
       dir.create(save_dir)
@@ -2362,7 +2502,7 @@ server <- function(input, output, session) {
       file.copy(from=file.path(tmp_dir, paste0(target_label, "_", target_pathway, "_koset.txt")), to=save_dir)
       showNotification("Results are saved in pathway_analysis successfully!")
     } else {
-      showNotification(paste0("Directory of ", target_pathway, " already exists. Cannot save the result."))
+      showNotification("Directory already exists. Cannot save the result.")
       req(FALSE)
     }
 
@@ -2389,21 +2529,49 @@ server <- function(input, output, session) {
     target_label_netA <- input$label_selector_netA
     values_network_netA$target_label <- target_label_netA
     cutoff <- input$clust_cutoff
+    switch_in_netA <- input$switch_in_netA
+
+    # check network construction or filter were built
+    if(switch_in_netA) {
+
+      if(!file.exists(file.path(working_dir, "network_filter"))) {
+        showNotification("Cannot find the directory of networt filter. Please run network filter first.")
+        resetLoadingButton("cluster_out")
+        req(FALSE)
+      }
+      else if(!file.exists(file.path(working_dir, "network_filter", target_label_netA))) {
+        showNotification(paste0("Cannot find the network_filter results of ", target_label_netA,". Please run network filter first."))
+        resetLoadingButton("cluster_out")
+        req(FALSE)
+      }
+
+    } else {
+
+      if(!file.exists(file.path(working_dir, "network_construction"))) {
+        showNotification("Cannot find the directory of networt construction. Please run network construction first.")
+        resetLoadingButton("cluster_out")
+        req(FALSE)
+      }
+      else if(!file.exists(file.path(working_dir, "network_construction", target_label_netA))) {
+        showNotification(paste0("Cannot find the network_construction results of ", target_label_netA,". Please run network construction first."))
+        resetLoadingButton("cluster_out")
+        req(FALSE)
+      }
+    }
 
     # main
-    if(!file.exists(file.path(working_dir, "network_filter"))) {
-      showNotification("Cannot find the directory of networt filter. Please run network filter first.")
-      resetLoadingButton("cluster_out")
-      req(FALSE)
-    }
-    else if(!file.exists(file.path(working_dir, "network_filter", target_label_netA))) {
-      showNotification(paste0("Cannot find the result of ", target_label_netA,". Please run network filter first."))
-      resetLoadingButton("cluster_out")
-      req(FALSE)
+    if(switch_in_netA) {
+
+      edge_NetA <- read.csv(file.path(working_dir, "network_filter", target_label_netA, paste0(target_label_netA,"_edge_f.csv")))
+      node_NetA <- read.csv(file.path(working_dir, "network_filter", target_label_netA, paste0(target_label_netA,"_node_f.csv")))
+
+    } else {
+
+      edge_NetA <- read.csv(file.path(working_dir, "network_construction", target_label_netA, paste0(target_label_netA,"_edge.csv")))
+      node_NetA <- read.csv(file.path(working_dir, "network_construction", target_label_netA, paste0(target_label_netA,"_node.csv")))
+
     }
 
-    edge_NetA <- read.csv(file.path(working_dir, "network_filter", target_label_netA, paste0(target_label_netA,"_edge_f.csv")))
-    node_NetA <- read.csv(file.path(working_dir, "network_filter", target_label_netA, paste0(target_label_netA,"_node_f.csv")))
     # store edge_NetA in reactive values
     values_network_netA$clust_edge <- edge_NetA
 
@@ -2545,13 +2713,19 @@ server <- function(input, output, session) {
   # save cluster stat results
   observeEvent(input$clust_stat_save, {
     target_label <- values_network_netA$target_label
+    switch_in_netA <- input$switch_in_netA
 
     netA_dir <- file.path(working_dir, "network_analysis")
     if(!dir.exists(netA_dir)){
       dir.create(netA_dir)
     }
 
-    save_dir <- file.path(netA_dir, paste0(target_label, "_cluster_overview"))
+    if(switch_in_netA) {
+      save_dir <- file.path(netA_dir, paste0("filtered_", target_label, "_cluster_overview"))
+    } else {
+      save_dir <- file.path(netA_dir, paste0(target_label, "_cluster_overview"))
+    }
+
     if(!dir.exists(save_dir)) {
       dir.create(save_dir)
       write.csv(values_network_netA$clust_node, file=file.path(save_dir, paste0(target_label, "_clust_node.csv")), row.names=F)
@@ -2560,7 +2734,7 @@ server <- function(input, output, session) {
               plot=values_network_netA$clust_stat_p, bg="white", width=10, height=8, units="in")
       showNotification("Results are saved in network_analysis successfully!")
     } else {
-      showNotification(paste0("Directory of ", target_label, " already exists. Cannot save the result."))
+      showNotification("Directory already exists. Cannot save the result.")
       req(FALSE)
     }
 
@@ -2771,6 +2945,7 @@ server <- function(input, output, session) {
   observeEvent(input$clust_graph_save, {
     clust_method <- values_network_netA$clust_method_vis
     target_label <- values_network_netA$target_label
+    switch_in_netA <- input$switch_in_netA
 
     # network analysis directory
     netA_dir <- file.path(working_dir, "network_analysis")
@@ -2778,7 +2953,12 @@ server <- function(input, output, session) {
       dir.create(netA_dir)
     }
 
-    save_dir <- file.path(netA_dir, paste(c(target_label, clust_method, "network"), collapse="_"))
+    if(switch_in_netA) {
+      save_dir <- file.path(netA_dir, paste(c("filtered", target_label, clust_method, "network"), collapse="_"))
+    } else {
+      save_dir <- file.path(netA_dir, paste(c(target_label, clust_method, "network"), collapse="_"))
+    }
+
     if(!dir.exists(save_dir)) {
       dir.create(save_dir)
       if(target_label == "All") {
@@ -2792,7 +2972,7 @@ server <- function(input, output, session) {
       visSave(values_network_netA$clust_graph, file=file.path(save_dir, paste0(target_label, "_", clust_method, ".html")))
       showNotification("Results are saved in network_analysis successfully!")
     } else {
-      showNotification(paste0("Directory of ", target_label, "_", clust_method, " already exists. Cannot save the result."))
+      showNotification("Directory of already exists. Cannot save the result.")
       req(FALSE)
     }
   }) # end of clust_graph_save
@@ -2816,17 +2996,25 @@ server <- function(input, output, session) {
     clust_id <- input$netA_path_clust_id
     values_network_netA$clust_id <- clust_id
     clust_p <- input$netA_path_p
+    switch_in_netA <- input$switch_in_netA
 
     # check whether the cohort clustering task has been performed
-    if(!file.exists(file.path(working_dir, "network_analysis", paste0(clust_label, "_cluster_overview")))) {
+    if(switch_in_netA){
+      net_overview_dir <- file.path(working_dir, "network_analysis", paste0("filtered_", clust_label, "_cluster_overview"))
+    } else {
+      net_overview_dir <- file.path(working_dir, "network_analysis", paste0(clust_label, "_cluster_overview"))
+    }
+    if(!dir.exists(net_overview_dir)) {
       showNotification("Cannot find the current cohort clustered results. Please save the Network Cluster results first.")
       resetLoadingButton("netA_path_button")
       req(FALSE)
     }
 
     # call py script
+    switch_para <- ""
+    if(switch_in_netA) {switch_para <- "on"} else {switch_para <- "off"}
     exit_code <- system(paste("python", file.path(script_dir, "clust_pathway_analysis.py"),
-                          working_dir, clust_label, clust_id, clust_p, threads))
+                          working_dir, clust_label, clust_id, clust_p, threads, switch_para))
     if( exit_code != 0){
       showNotification("Error occurred in Clustered pathway analysis. Please check the log in terminal.")
       resetLoadingButton("netA_path_button")
@@ -2890,7 +3078,7 @@ server <- function(input, output, session) {
                   formatSignif(columns = c('step1_stats', 'step1_p_adj', 'step2_stats', 'step2_p_adj'), digits = 3)
     })
 
-    if( !is.na(output$path_clust_plot) ) {
+    if( !is.null(values_network_netA$netA_clust_path_plot) ) {
       output$path_clust_plot <- renderPlot(
         values_network_netA$netA_clust_path_plot,
         width = function() input$path_clust_bar_width,
@@ -2936,7 +3124,7 @@ server <- function(input, output, session) {
              width=input$path_clust_bar_width, height=input$path_clust_bar_height, units="px", dpi=100)
       showNotification("Result is saved in network_analysis successfully!")
     } else {
-      showNotification(paste0("Directory of ", res_dir, " already exists. Cannot save the result."))
+      showNotification(paste0("Directory already exists. Cannot save the result."))
       req(FALSE)
     }
   }) # end of netA_path_save
@@ -2947,27 +3135,43 @@ server <- function(input, output, session) {
     values_network_netA$clust_vis_mapid <- target_pathway
     target_label <- values_network_netA$clust_path_label
     clust_id <- values_network_netA$clust_id
+    switch_in_netA <- input$switch_in_netA
 
     # check whether the cohort clustering task has been performed
-    if(!file.exists(file.path(working_dir, "network_analysis", paste0(target_label, "_cluster_overview")))) {
+    if(switch_in_netA){
+      netA_dir_test1 <- file.path(working_dir, "network_analysis", paste0("filtered_", target_label, "_cluster_overview"))
+    } else {
+      netA_dir_test1 <- file.path(working_dir, "network_analysis", paste0(target_label, "_cluster_overview"))
+    }
+
+    if(!dir.exists(netA_dir_test1)) {
       showNotification("Cannot find the current cohort clustered results. Please save the Network Cluster results first.")
-      resetLoadingButton("netA_path_button")
+      resetLoadingButton("netA_path_vis")
       req(FALSE)
     }
 
-    # check network filter results
-    if(!dir.exists(file.path(working_dir, "network_filter", target_label))) {
-      showNotification(
-        paste0("Cannot find the filtered sub-network result of ", target_label, ". Please run network filter first."))
-        resetLoadingButton("pathway_net_button")
-        req(FALSE)
+    # check network filter or network construction results
+    if(switch_in_netA) {
+      netA_dir_test2 <- file.path(working_dir, "network_filter", target_label)
+      text_show2 <- paste0("Cannot find the filtered sub-network result of ", target_label, ". Please run network filter first.")
+    } else {
+      netA_dir_test2 <- file.path(working_dir, "network_construction", target_label)
+      text_show2 <- paste0("Cannot find the network construction result of ", target_label, ". Please run network construction first.")
+    }
+
+    if(!dir.exists(netA_dir_test2)) {
+      showNotification(text_show2)
+      resetLoadingButton("netA_path_vis")
+      req(FALSE)
     }
 
     # call py script
+    switch_para <- ""
+    if(switch_in_netA) {switch_para <- "on"} else {switch_para <- "off"}
     exit_code <- system(paste("python", file.path(script_dir, "clust_path_net.py"),
-                          working_dir, target_pathway, target_label, clust_id))
+                          working_dir, target_pathway, target_label, clust_id, switch_para))
     if(exit_code != 0){
-      showNotification("Error occurred in clustered pathway sub-network visualization. Please check the log in terminal.")
+      showNotification("Error occurred in clustered network visualization. Please check the log in terminal.")
       resetLoadingButton("netA_path_vis")
       req(FALSE)
     }
@@ -3069,11 +3273,18 @@ server <- function(input, output, session) {
     target_label <- values_network_netA$clust_path_label
     target_pathway <- values_network_netA$clust_vis_mapid
     cluster_id <- values_network_netA$clust_id
+    switch_in_netA <- input$switch_in_netA
+
     netA_dir <- file.path(working_dir, "network_analysis")
     if(!dir.exists(netA_dir)){
       dir.create(netA_dir)
     }
-    save_dir <- file.path(netA_dir, paste0(target_label, "_", cluster_id, "_", target_pathway))
+    if(switch_in_netA){
+      save_dir <- file.path(netA_dir, paste0("filtered_", target_label, "_", cluster_id, "_", target_pathway))
+    } else {
+      save_dir <- file.path(netA_dir, paste0(target_label, "_", cluster_id, "_", target_pathway))
+    }
+
 
     if (!dir.exists(save_dir)){
       dir.create(save_dir)
@@ -3083,7 +3294,7 @@ server <- function(input, output, session) {
       file.copy(from=file.path(tmp_dir, paste0(target_label, "_", cluster_id, "_", target_pathway, "_koset.txt")), to=save_dir)
       showNotification("Results are saved in Clustered pathway analysis visualized network successfully!")
     } else {
-      showNotification(paste0("Directory of ", target_pathway, " already exists. Cannot save the result."))
+      showNotification("Directory already exists. Cannot save the result.")
       req(FALSE)
     }
   }) # end of netA_path_graph_save

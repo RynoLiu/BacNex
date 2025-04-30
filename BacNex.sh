@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-VERSOIN="Ver. 2.1"
+VERSOIN="Ver. 3.0"
 
 main_usage(){
 echo "

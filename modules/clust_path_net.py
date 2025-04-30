@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import json
+import time
 import sys
 import os
 import re
@@ -10,6 +11,7 @@ work_dir = sys.argv[1] # taxa_table directory
 target_pathway = sys.argv[2] # target pathway
 target_label = sys.argv[3] # target cohort
 cluster_id = sys.argv[4] # cluster id
+switch_in_netA = sys.argv[5] # switch_in_netA
 
 # ===== prepare =====
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -63,23 +65,30 @@ for pk, pv in path_koDict.items():
 
 # ===== main =====
 cluster_method = re.split(r'(?=\d)', cluster_id)[0].rstrip("_")
-edge_f = pd.read_csv(os.path.join(work_dir, "network_filter", target_label, f"{target_label}_edge_f.csv"))
-node_f = pd.read_csv(os.path.join(work_dir, "network_filter", target_label, f"{target_label}_node_f.csv"))
-clust_overview = pd.read_csv(os.path.join(work_dir, "network_analysis", f"{target_label}_cluster_overview", f"{target_label}_clust_node.csv"))
+
+if switch_in_netA == "on":
+    given_edge = pd.read_csv(os.path.join(work_dir, "network_filter", target_label, f"{target_label}_edge_f.csv"))
+    given_node = pd.read_csv(os.path.join(work_dir, "network_filter", target_label, f"{target_label}_node_f.csv"))
+    clust_overview = pd.read_csv(os.path.join(work_dir, "network_analysis", f"filtered_{target_label}_cluster_overview", f"{target_label}_clust_node.csv"))
+elif switch_in_netA == "off":
+    given_edge = pd.read_csv(os.path.join(work_dir, "network_construction", target_label, f"{target_label}_edge.csv"))
+    given_node = pd.read_csv(os.path.join(work_dir, "network_construction", target_label, f"{target_label}_node.csv"))
+    clust_overview = pd.read_csv(os.path.join(work_dir, "network_analysis", f"{target_label}_cluster_overview", f"{target_label}_clust_node.csv"))
+
 clust_subnet_node = clust_overview["id"][clust_overview[cluster_method] == cluster_id].to_list()
 
 # Task 1 : get target pathway taxa and exists in target cluster
 # output_1 : path_subnet_edge, path_subnet_node
-edge_f["ID"] = range(edge_f.shape[0]) # add ID column
+given_edge["ID"] = range(given_edge.shape[0]) # add ID column
 target_path_taxalist = path_taxaDict[target_pathway]
 subnet_id = []
-for i in range(len(edge_f)):
-    row = edge_f.iloc[i,]
+for i in range(len(given_edge)):
+    row = given_edge.iloc[i,]
     if all( (row[key] in target_path_taxalist) and (row[key] in clust_subnet_node) for key in ["from", "to"] ):
         subnet_id.append(row.ID)
-path_subnet_edge = edge_f[edge_f["ID"].isin(subnet_id)]
+path_subnet_edge = given_edge[given_edge["ID"].isin(subnet_id)]
 path_subnet_edge = path_subnet_edge.drop(columns=["ID"])
-path_subnet_node = node_f[node_f["id"].isin(set(np.concatenate((path_subnet_edge["from"].values, path_subnet_edge["to"].values))))]
+path_subnet_node = given_node[given_node["id"].isin(set(np.concatenate((path_subnet_edge["from"].values, path_subnet_edge["to"].values))))]
 
 # Task 2 : target pahtway ko list from sub-network taxa
 # ouput_2 : subnet_ko
@@ -98,3 +107,6 @@ path_subnet_node.to_csv(os.path.join(tmp_dir, f"{target_label}_{cluster_id}_{tar
 with open(os.path.join(tmp_dir, f"{target_label}_{cluster_id}_{target_pathway}_koset.txt"), "w") as fres:
     for ko in subnet_ko:
         fres.write(f"{ko}\n")
+
+print(f"{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())} - Clustered pathway network visualization done!")
+sys.exit(0)

@@ -8,7 +8,6 @@ from scipy.stats import fisher_exact
 from pandas.errors import SettingWithCopyWarning
 warnings.simplefilter(action='ignore', category=(SettingWithCopyWarning, FutureWarning))
 import concurrent.futures
-# import pyreadr
 import argparse
 import time
 import json
@@ -24,6 +23,7 @@ target_label = sys.argv[2] # target label
 cluster_id = sys.argv[3] # cluster id
 p_val = float(sys.argv[4]) # p_val options
 threads = int(sys.argv[5]) # threads
+switch_in_netA = sys.argv[6] # switch
 
 # ===== Prepare =====
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -214,15 +214,23 @@ if not os.path.isfile(os.path.join(NC_dir, "whole_taxa2taxa_edge.tsv")):
 else:
     background_edge = pd.read_csv(os.path.join(NC_dir, "whole_taxa2taxa_edge.tsv"), sep="\t")
 
-netA_dir = os.path.join(work_dir, "network_analysis", f"{target_label}_cluster_overview")
-filter_edge = pd.read_csv(os.path.join(work_dir, "network_filter", f"{target_label}", f"{target_label}_edge_f.csv"))
+if switch_in_netA == "off":
+    netA_dir = os.path.join(work_dir, "network_analysis", f"{target_label}_cluster_overview")
+    given_edge = pd.read_csv(os.path.join(work_dir, "network_construction", f"{target_label}", f"{target_label}_edge.csv"))
+elif switch_in_netA == "on":
+    netA_dir = os.path.join(work_dir, "network_analysis", f"filtered_{target_label}_cluster_overview")
+    given_edge = pd.read_csv(os.path.join(work_dir, "network_filter", f"{target_label}", f"{target_label}_edge_f.csv"))
+
 overview_node = pd.read_csv(os.path.join(netA_dir, f"{target_label}_clust_node.csv"))
 # extract target cluster
 cluster_method = re.split(r'(?=\d)', cluster_id)[0].rstrip("_")
 clust_node = overview_node[overview_node[cluster_method] == cluster_id]
-clust_edge = filter_edge[filter_edge["from"].isin(clust_node["id"].to_list()) & filter_edge["to"].isin(clust_node["id"].to_list())]
+clust_edge = given_edge[given_edge["from"].isin(clust_node["id"].to_list()) & given_edge["to"].isin(clust_node["id"].to_list())]
 # calculation
 final_res = vital_pathway(clust_edge, clust_node, background_edge)
+
+# save
 final_res.to_csv(os.path.join(tmp_dir, f"{target_label}_{cluster_id}_pathway.csv"), sep=",", index=False)
+
 print(f"{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())} - Clustered pathway analysis done!")
 sys.exit(0)

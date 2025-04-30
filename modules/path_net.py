@@ -8,6 +8,7 @@ import os
 work_dir = sys.argv[1] # taxa_table directory
 target_pathway = sys.argv[2] # target pathway
 target_label = sys.argv[3] # target cohort
+swich_in_path =  sys.argv[4]
 
 # ===== prepare =====
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -60,21 +61,25 @@ for pk, pv in path_koDict.items():
 
 
 # main
-edge_f = pd.read_csv(os.path.join(work_dir, "network_filter", target_label, f"{target_label}_edge_f.csv"))
-node_f = pd.read_csv(os.path.join(work_dir, "network_filter", target_label, f"{target_label}_node_f.csv"))
+if swich_in_path == "on":
+    given_edge = pd.read_csv(os.path.join(work_dir, "network_filter", target_label, f"{target_label}_edge_f.csv"))
+    given_node = pd.read_csv(os.path.join(work_dir, "network_filter", target_label, f"{target_label}_node_f.csv"))
+elif swich_in_path == "off":
+    given_edge = pd.read_csv(os.path.join(work_dir, "network_construction", target_label, f"{target_label}_edge.csv"))
+    given_node = pd.read_csv(os.path.join(work_dir, "network_construction", target_label, f"{target_label}_node.csv"))
 
 # Task 1 : get target pathway taxa
 # output_1 : path_subnet_edge, path_subnet_node
-edge_f["ID"] = range(edge_f.shape[0]) # add ID column
+given_edge["ID"] = range(given_edge.shape[0]) # add ID column
 target_path_taxalist = path_taxaDict[target_pathway]
 subnet_id = []
-for i in range(len(edge_f)):
-    row = edge_f.iloc[i,]
+for i in range(len(given_edge)):
+    row = given_edge.iloc[i,]
     if (row["from"] in target_path_taxalist) and (row["to"] in target_path_taxalist):
         subnet_id.append(row.ID)
-path_subnet_edge = edge_f[edge_f["ID"].isin(subnet_id)]
+path_subnet_edge = given_edge[given_edge["ID"].isin(subnet_id)]
 path_subnet_edge = path_subnet_edge.drop(columns=["ID"])
-path_subnet_node = node_f[node_f["id"].isin(set(np.concatenate((path_subnet_edge["from"].values, path_subnet_edge["to"].values))))]
+path_subnet_node = given_node[given_node["id"].isin(set(np.concatenate((path_subnet_edge["from"].values, path_subnet_edge["to"].values))))]
 
 
 # Task 2 : target pahtway ko list from sub-network taxa

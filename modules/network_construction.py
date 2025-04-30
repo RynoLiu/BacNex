@@ -23,20 +23,36 @@ p_val = float(sys.argv[3]) # p_val options
 threads = int(sys.argv[4]) # threads
 select_task = sys.argv[5] # selected classification task
 
+# visualization refined options
+size_opt = sys.argv[6] # size options
+select_rank = sys.argv[7] # select rank
+size_range_min = float(sys.argv[8]) # size range min
+size_range_max = float(sys.argv[9]) # size range max
+width_range_min = float(sys.argv[10]) # width range min
+width_range_max = float(sys.argv[11]) # width range max
+
+
+
 
 # ===== Prepare =====
+script_dir = os.path.dirname(os.path.abspath(__file__))
+# rank = ["phylum", "class", "order", "family", "genus", "none"]
+sp_map = pd.read_csv(os.path.join(script_dir, "taxa_lineage", "species_map.csv")) # group info map
 # taxa_koDict from make_table.py
 taxa_koDict = None
 with open(os.path.join(work_dir, "taxa_koDict.json"), 'r') as fp: taxa_koDict = json.load(fp)
 
-# raw PLlist
+# raw PLres
 PL_out = os.path.join(work_dir,"prelect_dir")
 PLres = pd.read_csv(os.path.join(PL_out, "PLres.csv"), index_col=0)
 
-
 # taxa_table
-# taxa_table = pd.read_csv(os.path.join(work_dir, "taxa_table.csv"), index_col=0)
 tmp_dir = os.path.join(work_dir, "tmp_files")
+
+# MC FC nessesary table
+taxa_table = pd.read_csv(os.path.join(work_dir, "taxa_table.csv"), index_col=0)
+meta = pd.read_csv(os.path.join(work_dir, "tmp_files", "meta.csv"), index_col=0)
+
 
 
 # extract tendency taxa (tenedency PLres)
@@ -134,8 +150,100 @@ def taxa2taxa(num_processes):
     edge['Type'] = 'undirected'
     return edge
 
+
+
+# Node table
+def node_table(edge, opt):
+
+    def ko_counts(taxa):
+        ko_l = taxa_koDict[taxa]
+        return len(ko_l)
+
+
+    def fold_change(taxa, group):
+        abund_list = taxa_table.loc[taxa,:]
+        target_abund = abund_list[abund_list.index.isin(meta["Accession_ID"][meta["Labels"] == group])]
+        other_abund = abund_list[abund_list.index.isin(meta["Accession_ID"][meta["Labels"] != group])]
+        # FC
+        fc = np.log2( (np.mean(target_abund)+1) / (np.mean(other_abund)+1) )
+        return fc
+
+
+    nodelist = []
+    for n in np.unique(edge['from'].to_list() + edge['to'].to_list()):
+        species_name = n.split('s__')[1]
+        genus_name = n.split('.s__')[0].split('g__')[1]
+
+        # Compatibility with selected task
+        tendency = None
+        if select_task in ["BC", "Rg", "Cox"]:
+            tendency = PLres.loc[n, "tendency"]
+        elif select_task == "MC":
+            tendency = target_label
+
+        # optional size
+        if opt == "degree":
+            size = edge[edge["from"] == n].shape[0] + edge[edge["to"] == n].shape[0] # degree of species
+        elif opt == "FC":
+            if select_task == "MC":
+                fc = fold_change(n, target_label)
+                abs_fc = abs(fc)
+                size = abs_fc if abs_fc != np.inf else 10
+            else:
+                abs_fc = abs(PLres.loc[n,"logFC"])
+                size = abs_fc if abs_fc != np.inf else 10
+        elif opt == "KO":
+            size = ko_counts(n)
+
+        if select_rank in ["phylum", "class", "order", "family", "genus"]:
+            group = sp_map[select_rank][sp_map["genus"] == genus_name].values[0]
+            nodelist.append(pd.DataFrame({'id':[n],'label':[species_name],'sublabel':[genus_name], 'tendency':[tendency], 'raw_value':[size],'group':[group]}))
+        else:
+            nodelist.append(pd.DataFrame({'id':[n],'label':[species_name],'sublabel':[genus_name],'tendency':[tendency], 'raw_value':[size]}))
+
+    node = pd.concat(nodelist, ignore_index=True)
+    node = size_scaler(node)
+    return node
+
+
+def size_scaler(node_table):
+    global size_range_min, size_range_max
+    scale_node = copy.deepcopy(node_table)
+    # Min-Max Scaler to scale size to 0-1
+    min_value = scale_node['raw_value'].min()
+    max_value = scale_node['raw_value'].max()
+    scale_node['size'] = (scale_node['raw_value'] - min_value) / (max_value - min_value)
+
+    # Scale to desired range (10-40)
+    min_size = size_range_min
+    max_size = size_range_max
+    scale_node['size'] = min_size + scale_node['size'] * (max_size - min_size)
+    return scale_node
+
+
+def width_scaler(edge_table):
+    global width_range_min, width_range_max
+    scale_edge = copy.deepcopy(edge_table)
+    # Min-Max Scaler to scale size to 0-1
+    min_value = scale_edge['weight'].min()
+    max_value = scale_edge['weight'].max()
+    scale_edge['width'] = (scale_edge['weight'] - min_value) / (max_value - min_value)
+
+    # Scale to desired range
+    min_width = width_range_min
+    max_width = width_range_max
+    scale_edge['width'] = min_width + scale_edge['width'] * (max_width - min_width)
+    return scale_edge
+
+
 # ===== Main =====
 edge = taxa2taxa(num_processes=threads)
-edge.to_csv(os.path.join(tmp_dir, f"{target_label}_edge.csv"), index=False)
+# node table of edge
+node = node_table(edge, size_opt)
+# scale width of edge
+scaling_edge = width_scaler(edge)
+
+scaling_edge.to_csv(os.path.join(tmp_dir, f"{target_label}_edge.csv"), index=False)
+node.to_csv(os.path.join(tmp_dir, f"{target_label}_node.csv"), index=False)
 print(f"{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())} - network construction done!")
 sys.exit(0)

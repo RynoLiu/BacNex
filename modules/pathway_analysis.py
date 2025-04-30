@@ -8,7 +8,6 @@ from scipy.stats import fisher_exact
 from pandas.errors import SettingWithCopyWarning
 warnings.simplefilter(action='ignore', category=(SettingWithCopyWarning, FutureWarning))
 import concurrent.futures
-# import pyreadr
 import argparse
 import time
 import json
@@ -24,6 +23,7 @@ work_dir = sys.argv[1] # taxa_table directory
 target_label = sys.argv[2] # target label
 p_val = float(sys.argv[3]) # p_val options
 threads = int(sys.argv[4]) # threads
+filtered_switch = sys.argv[5] # switch for filtered network
 
 # ===== Prepare =====
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -218,10 +218,21 @@ if not os.path.isfile(os.path.join(NC_dir, "whole_taxa2taxa_edge.tsv")):
 else:
     background_edge = pd.read_csv(os.path.join(NC_dir, "whole_taxa2taxa_edge.tsv"), sep="\t")
 
-filter_dir = os.path.join(work_dir, "network_filter", target_label)
-filter_edge = pd.read_csv(os.path.join(filter_dir, f"{target_label}_edge_f.csv"))
-filter_node = pd.read_csv(os.path.join(filter_dir, f"{target_label}_node_f.csv"))
-final_res = vital_pathway(filter_edge, filter_node, background_edge)
+
+given_dir = None
+given_edge = None
+given_node = None
+if filtered_switch == "on":
+    given_dir = os.path.join(work_dir, "network_filter", target_label)
+    given_edge = pd.read_csv(os.path.join(given_dir, f"{target_label}_edge_f.csv"))
+    given_node = pd.read_csv(os.path.join(given_dir, f"{target_label}_node_f.csv"))
+elif filtered_switch == "off":
+    given_dir = os.path.join(work_dir, "network_construction", target_label)
+    given_edge = pd.read_csv(os.path.join(given_dir, f"{target_label}_edge.csv"))
+    given_node = pd.read_csv(os.path.join(given_dir, f"{target_label}_node.csv"))
+
+final_res = vital_pathway(given_edge, given_node, background_edge)
+
 final_res.to_csv(os.path.join(tmp_dir, f"{target_label}_pathway.csv"), sep=",", index=False)
 print(f"{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())} - pathway analysis done!")
 sys.exit(0)
