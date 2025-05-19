@@ -22,6 +22,8 @@ library(patchwork)
 library(PreLectR)
 library(parallel) # multi process
 library(pROC) # auc
+library(rpart) # for segments
+library(dplyr)
 
 
 # Rscript -e "shiny::runApp('${app_dir}', launch.browser=function(url) { utils::browseURL(url, browser='/usr/bin/google-chrome') })"
@@ -30,7 +32,7 @@ library(pROC) # auc
 working_dir <- Sys.getenv("WORKING_DIR")
 script_dir <- Sys.getenv("SCRIPT_DIR")
 threads <- Sys.getenv("THREADS")
-# working_dir <- "~/Documents/Pipeline_test/app_reg_test"
+# working_dir <- "~/Documents/Pipeline_test/BacNex_beta2_BCtest"
 # script_dir <- "~/Documents/vscode/files/BacNex/modules"
 # threads <- 5
 
@@ -408,6 +410,21 @@ ui <- dashboardPage(
       # module 5
       tabItem("Networkfilter",
               fluidRow(
+                box(title="Determination of PreLect weight threshold", width=12, status="primary", solidHeader = TRUE,
+                  fluidRow(
+                    column(3, numericInput('k_fdecide', label="k for segmentation point", value=3, min=1, max=30, step=1)),
+                    column(3, numericInput('max_depth_fdecide', label='Maximum depth for dTree', value=7, min=1, max=10, step=1)),
+                    column(3, numericInput('min_bucket_fdecide', label='Minimun point for each sequement', value=10, min=1, max=50, step=1))
+                  ),
+                  loadingButton("fdecide_button", "Get the result", loadingLabel = "Processing...", style="color: #444; background-color: #f4f4f4; border-color: #ddd;"),
+                  HTML("<br><br>"),
+                  uiOutput("fdecide_ui"),
+                  HTML('<br><br>'),
+                  plotOutput("fdecide_plot", height="500px", width="75%"),
+                  HTML('<br>'),
+                  h4(textOutput("fdecide_final_weight")),
+                ),
+
                 box(title="Network filter", width=12, status="primary", solidHeader = TRUE,
                     fluidRow(
                       column(3, selectInput("label_selector_f", label="Cohort", choices="")),
@@ -647,11 +664,12 @@ server <- function(input, output, session) {
   values_network_c <- reactiveValues(edge=NULL, node=NULL, visnet=NULL)
 
   # Network_f values
-  values_network_f <- reactiveValues(network=NULL, node=NULL, edge=NULL, filter_prop=NULL)
+  values_network_f <- reactiveValues(network=NULL, node=NULL, edge=NULL, filter_prop=NULL,
+                                      fdecide_plot=NULL, fdecide_pnt=NULL)
 
   # pathway values
   values_pathway <- reactiveValues(target_label_p=NULL, pathway_table=NULL, pathway_plot=NULL,
-                                   label_selector_path_net=NULL, path_edge=NULL, path_node=NULL, path_visnet=NULL)
+                                    label_selector_path_net=NULL, path_edge=NULL, path_node=NULL, path_visnet=NULL)
 
   # network_A values
   values_network_netA <- reactiveValues(target_label=NULL, module_eva=NULL, method_opts=NULL,
@@ -662,7 +680,7 @@ server <- function(input, output, session) {
                                         clust_vis_mapid=NULL, clust_path_edge=NULL, clust_path_node=NULL, clust_path_visnet=NULL) # netA_pathway_vis
 
 
-  # ===== main Event 1 (meta) =====
+  # ===== main Event (meta) =====
   observeEvent(input$submit_meta_button, {
     meta <- reactive({
       req(input$meta_file)
@@ -766,6 +784,7 @@ server <- function(input, output, session) {
       updateSelectInput(session, "label_selector_path_net", choices = groups ) # pathway sub-network
       updateSelectInput(session, "label_selector_netA", choices = groups ) # network analysis cluster
       updateSelectInput(session, "label_netA_path", choices = groups ) # network analysis clustered pathway analysis
+      updateSelectInput(session, "label_selector_fdecide", choices = groups ) # filter weight decision
     }
     else if(values_meta$select_task == "MC") { # multi classification (not support All)
       updateSelectInput(session, "label_selector_com", choices = c("All", groups) ) # diversity composition
@@ -775,6 +794,7 @@ server <- function(input, output, session) {
       updateSelectInput(session, "label_selector_path_net", choices = groups ) # pathway sub-network
       updateSelectInput(session, "label_selector_netA", choices = groups ) # network analysis cluster
       updateSelectInput(session, "label_netA_path", choices = groups ) # network analysis clustered pathway analysis
+      updateSelectInput(session, "label_selector_fdecide", choices = groups ) # filter weight decision
     }
     else if(values_meta$select_task == "Rg") {
       groups <- c("All", "high", "low")
@@ -785,6 +805,7 @@ server <- function(input, output, session) {
       updateSelectInput(session, "label_selector_path_net", choices = groups ) # pathway sub-network
       updateSelectInput(session, "label_selector_netA", choices = groups ) # network analysis cluster
       updateSelectInput(session, "label_netA_path", choices = groups ) # network analysis clustered pathway analysis
+      updateSelectInput(session, "label_selector_fdecide", choices = groups ) # filter weight decision
     }
     else if(values_meta$select_task == "Cox") {
       cox_groups <- as.character(unique(values_meta$meta_v$Event))
@@ -798,6 +819,7 @@ server <- function(input, output, session) {
       updateSelectInput(session, "label_selector_path_net", choices = task_groups ) # pathway sub-network
       updateSelectInput(session, "label_selector_netA", choices = task_groups ) # network analysis cluster
       updateSelectInput(session, "label_netA_path", choices = task_groups ) # network analysis clustered pathway analysis
+      updateSelectInput(session, "label_selector_fdecide", choices = task_groups ) # filter weight decision
     }
 
 
@@ -816,7 +838,7 @@ server <- function(input, output, session) {
   }) # end of main Event 1
 
 
-  # ===== main Event 2 (Batch effect) =====
+  # ===== main Event (Batch effect) =====
   output$batch_detect_remind <- renderUI({
     HTML("<b>Please make sure that the column \'Batch\' is in the metadata data frame.</b>")
   })
@@ -1009,7 +1031,7 @@ server <- function(input, output, session) {
   }) # end of batch effect correction save
 
 
-  # ===== main Event 2 (Diversity) =====
+  # ===== main Event (Diversity) =====
 
   # alpha
   output$a_color_input <- renderUI({
@@ -1535,7 +1557,7 @@ server <- function(input, output, session) {
   })
 
 
-  # ===== main Event 3 (PreLect) =====
+  # ===== main Event (PreLect) =====
   # PreLect auto scanning
   observeEvent(input$tuning_run, {
 
@@ -1877,7 +1899,7 @@ server <- function(input, output, session) {
 
 
 
-  # ===== main Event 4 (Network) =====
+  # ===== main Event (Network) =====
   # Network construction
   observeEvent(input$make_network_button, {
     select_task <- values_meta$select_task
@@ -1891,6 +1913,13 @@ server <- function(input, output, session) {
     size_range_max <- input$size_range[2]
     width_range_min <- input$width_range[1]
     width_range_max <- input$width_range[2]
+
+    # check PLres.csv
+    if(!file.exists(file.path(working_dir, "prelect_dir", "PLres.csv")) ) {
+      showNotification("Error: Please save PreLect feature table in Feature visulization module.")
+      resetLoadingButton("make_network_button")
+      req(FALSE)
+    }
 
     # call py script
     exit_code <- system(paste("python", file.path(script_dir, "network_construction.py"),
@@ -2010,6 +2039,10 @@ server <- function(input, output, session) {
       visSave(values_network_c$visnet, file = file.path(save_dir, paste0(target_label, ".html")))
       file.copy(from=file.path(tmp_dir, paste0(target_label, "_edge.csv")), to=save_dir)
       file.copy(from=file.path(tmp_dir, paste0(target_label, "_node.csv")), to=save_dir)
+      if(file.exists(file.path(tmp_dir, paste0(target_label, "_unclassified_sp.txt")))) {
+        file.copy(from=file.path(tmp_dir, paste0(target_label, "_unclassified_sp.txt")), to=save_dir)
+        showNotification(paste0("Warning: Some species could not be matched to a selected taxonomy level name."))
+      }
       showNotification("Network is saved in network_construction successfully!")
     } else {
       showNotification(paste0(target_label, " network results already exist. Cannot save the results."))
@@ -2171,7 +2204,7 @@ server <- function(input, output, session) {
 
 
 
-  # ===== main Event 5 (pathway) =====
+  # ===== main Event (pathway) =====
   output$path_bar_size_input <- renderUI({
     if (is.null(values_pathway$pathway_plot)) {
       return(NULL)
@@ -2509,7 +2542,7 @@ server <- function(input, output, session) {
   }) # end of pathway save button
 
 
-  # ===== main Event 6 (Network analysis) =====
+  # ===== main Event (Network analysis) =====
   # vis func
   clust_cnt_vis <- function(cnt_table, clust_method) {
     Xaxis <- ifelse(cnt_table$Var1 == "unclustered", "unclustered", as.character(1:length(cnt_table$Var1)))
@@ -2978,7 +3011,7 @@ server <- function(input, output, session) {
   }) # end of clust_graph_save
 
 
-  # ===== main Event 7 (Clustered pathway analysis) =====
+  # ===== main Event (Clustered pathway analysis) =====
   output$path_clust_bar_size_input <- renderUI({
     if (is.null(values_network_netA$netA_clust_path_plot)) {
       return(NULL)
@@ -3298,6 +3331,81 @@ server <- function(input, output, session) {
       req(FALSE)
     }
   }) # end of netA_path_graph_save
+
+  # weight decision
+  observeEvent(input$fdecide_button, {
+    maxdepth_ <- as.integer(input$max_depth_fdecide)
+    minbucket_ <- as.integer(input$min_bucket_fdecide)
+    k <- as.integer(input$k_fdecide)
+
+    # check whether the prelect has been performed
+    if(!dir.exists(file.path(working_dir, "prelect_dir"))){
+      showNotification("Cannot find the prelect results. Please save prelect results first.")
+      resetLoadingButton("fdecide_button")
+      req(FALSE)
+    }
+
+    # PLres
+    PLres <- read.csv(file.path(working_dir, "prelect_dir", "PLres.csv"), row.names=1)
+    PLres <- subset(PLres, coef != 0)
+    PLres$coef <- abs(PLres$coef)
+    PLres_sorted <- PLres[order(-PLres$coef), ]
+
+    ys <- PLres_sorted$coef
+    xs <- 1:length(ys)
+    # 1. slope variation
+    dys <- diff(ys) / diff(xs)
+    xs_mid <- (xs[-length(xs)] + xs[-1]) / 2  # middle point as predictor
+    rgr <- rpart(dys ~ xs_mid, control = rpart.control(maxdepth=maxdepth_, minbucket=minbucket_, cp=0.0001))  # adjustment
+    dys_dt <- predict(rgr, newdata = data.frame(xs_mid = xs_mid))
+    change_points <- which(dys_dt != dplyr::lag(dys_dt))
+    change_points_supp <- c(change_points, length(dys_dt))  # make up last point
+
+    # plot
+    plot_data <- data.frame(xs = xs, ys = ys)
+    p <- ggplot(plot_data, aes(x = xs, y = ys)) +
+      geom_point(color = "gray60", size = 1.5) +
+      labs(x = "Feature Rank", y = "Weight") +
+      theme_minimal() +
+      theme(axis.line = element_line(color = "black", linewidth = 0.5),
+            axis.text = element_text(size = 10))
+    # segments + change points marked
+    segment_df <- data.frame()
+    for (i in seq_along(change_points_supp)) {
+      x0 <- if (i == 1) 1 else change_points_supp[i - 1] + 1
+      x1 <- change_points_supp[i]
+      y0 <- ys[x0]
+      y1 <- ys[x1]
+      segment_df <- rbind(segment_df, data.frame(x=x0, xend=x1, y=y0, yend=y1))
+    }
+    p <- p + geom_segment(data = segment_df,
+                          aes(x = x, xend = xend, y = y, yend = yend),
+                          color = "red", size = 0.5)
+    p <- p + geom_hline(yintercept = ys[change_points[k]], color = "black", linetype = "dashed")
+    cut_pnt <- ys[change_points[k]]
+    # store in reactive values
+    values_network_f$fdecide_pnt <- cut_pnt
+    values_network_f$fdecide_plot <- p
+
+    # output
+    if( !is.null(values_network_f$fdecide_plot) ){
+      output$fdecide_plot <- renderPlot({values_network_f$fdecide_plot})
+    } else { output$fdecide_plot <- renderPlot({NULL})}
+
+    output$fdecide_ui <- renderUI({
+      tagList(
+        HTML("Selected k: ", k)
+      )
+    })
+
+    output$fdecide_final_weight <- renderText({
+      paste0("The selected PreLect model weight is: ", cut_pnt)
+    })
+    # update to network filter prelect weight selector
+    updateNumericInput(session, "PL_w", value=cut_pnt)
+
+    resetLoadingButton("fdecide_button")
+  })
 
 
   # Delete the tmp_files when the session ends

@@ -153,6 +153,7 @@ def taxa2taxa(num_processes):
 
 
 # Node table
+unclassfied_species = []
 def node_table(edge, opt):
 
     def ko_counts(taxa):
@@ -196,7 +197,15 @@ def node_table(edge, opt):
             size = ko_counts(n)
 
         if select_rank in ["phylum", "class", "order", "family", "genus"]:
-            group = sp_map[select_rank][sp_map["genus"] == genus_name].values[0]
+            subset = sp_map[select_rank][sp_map["genus"] == genus_name]
+            if len(subset) == 0:
+                global unclassfied_species
+                unclassfied_species.append(n)
+                edge = edge[~((edge['from'] == n) | (edge['to'] == n))] # remove node contains n
+                continue
+            else:
+                group = group = subset.values[0]
+            
             nodelist.append(pd.DataFrame({'id':[n],'label':[species_name],'sublabel':[genus_name], 'tendency':[tendency], 'raw_value':[size],'group':[group]}))
         else:
             nodelist.append(pd.DataFrame({'id':[n],'label':[species_name],'sublabel':[genus_name],'tendency':[tendency], 'raw_value':[size]}))
@@ -245,5 +254,10 @@ scaling_edge = width_scaler(edge)
 
 scaling_edge.to_csv(os.path.join(tmp_dir, f"{target_label}_edge.csv"), index=False)
 node.to_csv(os.path.join(tmp_dir, f"{target_label}_node.csv"), index=False)
+if len(unclassfied_species) != 0:
+    with open(os.path.join(tmp_dir, f"{target_label}_unclassified_sp.txt"), "w") as fuc:
+        for sp in unclassfied_species:
+            fuc.write(f"{sp}\n")
+
 print(f"{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())} - network construction done!")
 sys.exit(0)
