@@ -8,7 +8,7 @@ import os
 work_dir = sys.argv[1] # taxa_table directory
 target_pathway = sys.argv[2] # target pathway
 target_label = sys.argv[3] # target cohort
-swich_in_path =  sys.argv[4]
+switch_in_path =  sys.argv[4]
 
 # ===== prepare =====
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -61,10 +61,10 @@ for pk, pv in path_koDict.items():
 
 
 # main
-if swich_in_path == "on":
+if switch_in_path == "on":
     given_edge = pd.read_csv(os.path.join(work_dir, "network_filter", target_label, f"{target_label}_edge_f.csv"))
     given_node = pd.read_csv(os.path.join(work_dir, "network_filter", target_label, f"{target_label}_node_f.csv"))
-elif swich_in_path == "off":
+elif switch_in_path == "off":
     given_edge = pd.read_csv(os.path.join(work_dir, "network_construction", target_label, f"{target_label}_edge.csv"))
     given_node = pd.read_csv(os.path.join(work_dir, "network_construction", target_label, f"{target_label}_node.csv"))
 

@@ -53,6 +53,7 @@ onstart <- function() {
 
 # taxa table
 data <- read.table(file.path(working_dir, 'taxa_table.csv'), sep = ',', header = T, row.names = 1, stringsAsFactors = FALSE)
+data <- data[, order(names(data))] # re-order the columns by names
 split_result <- strsplit(row.names(data), "\\.")
 genus <- sapply(split_result, function(x) sub("g__", "", x[1]))
 species <- sapply(split_result, function(x) sub("s__", "", x[2]))
@@ -1765,7 +1766,7 @@ server <- function(input, output, session) {
     save_dir = file.path(working_dir, 'prelect_dir')
 
     if(dir.exists(save_dir)){
-      d1 <- read.csv(file.path(save_dir, 'TuningResult.csv'))
+      d1 <- read.csv(file.path(save_dir, 'TuningResult.csv'), row.names=1)
       d2 <- read.csv(file.path(save_dir,'Pvl_distribution.csv'))
       lmbd_picking <- LambdaDecision(d1, d2, maxdepth=maxdepth_, minbucket=minbucket_)
 
@@ -1792,14 +1793,23 @@ server <- function(input, output, session) {
     }
 
     values_opt_lmbd$history <- d1
+    d1_render <- values_opt_lmbd$history %>%
+      mutate(across(where(is.numeric),
+                    ~ case_when(
+                      floor(.) == . ~ as.character(.),
+                      abs(.) > 1 ~ sprintf("%.3f", .),
+                      abs(.) < 0.001 ~ formatC(., format = "e", digits = 3),
+                      TRUE ~ sprintf("%.3f", .)
+                    )))
+
+    # output
     output$PL_history <- DT::renderDT({
       if(is.null(values_opt_lmbd$history)){
         return(NULL)
       }
-      numeric_cols <- colnames(values_opt_lmbd$history)[sapply(values_opt_lmbd$history, is.numeric)]
-      numeric_cols <- numeric_cols[-1]
-      datatable(values_opt_lmbd$history, options=list(scrollX=T)) %>%
-        formatSignif(columns = numeric_cols, digits = 3)
+      # numeric_cols <- colnames(values_opt_lmbd$history)[sapply(values_opt_lmbd$history, is.numeric)]
+      # numeric_cols <- numeric_cols[-1]
+      datatable(d1_render, options=list(scrollX=T), rownames=FALSE)
     })
 
     # update opt_lmbd selector
@@ -1865,10 +1875,18 @@ server <- function(input, output, session) {
     # saved prelect visual table in tmp_files
     write.csv(values_runprelect$PLres, file=file.path(tmp_dir, 'PLres.csv'), row.names=T)
 
-    numeric_cols <- colnames(values_runprelect$PLres)[sapply(values_runprelect$PLres, is.numeric)]
+    visual_table_render <- values_runprelect$PLres %>%
+      mutate(across(where(is.numeric),
+                    ~ case_when(
+                      floor(.) == . ~ as.character(.),
+                      abs(.) > 1 ~ sprintf("%.3f", .),
+                      abs(.) < 0.001 ~ formatC(., format = "e", digits = 3),
+                      TRUE ~ sprintf("%.3f", .)
+                    )))
+
+    # numeric_cols <- colnames(values_runprelect$PLres)[sapply(values_runprelect$PLres, is.numeric)]
     output$PLres_table <- DT::renderDT({
-      datatable(values_runprelect$PLres, options=list(scrollX=T)) %>%
-                formatSignif(columns = numeric_cols, digits = 3)
+      datatable(visual_table_render, options=list(scrollX=T))
     })
 
     # render text
@@ -1987,9 +2005,16 @@ server <- function(input, output, session) {
       paste("Featured", target_label, "tendency network")
     })
 
+    edge_render <- values_network_c$edge %>%
+      mutate(across(where(is.numeric),
+                    ~ case_when(
+                      floor(.) == . ~ as.character(.),
+                      abs(.) > 1 ~ sprintf("%.2f", .),
+                      abs(.) < 0.001 ~ formatC(., format = "e", digits = 2),
+                      TRUE ~ sprintf("%.2f", .)
+                    )))
     output$edge_table <- DT::renderDT({
-      datatable(values_network_c$edge, options=list(scrollX=T, columnDefs =list(list(visible=FALSE, targets=c(-1))))) %>%
-        formatSignif(columns = c('weight', 'p', 'p_adj'), digits = 3)
+      datatable(edge_render, options=list(scrollX=T, columnDefs=list(list(visible=FALSE, targets=c(6, 7)))))
     })
 
     # left panel
@@ -2008,14 +2033,16 @@ server <- function(input, output, session) {
       )
     })
 
-    output$edge_table <- DT::renderDT({
-      datatable(values_network_c$edge, options=list(scrollX=T, columnDefs=list(list(visible=FALSE, targets=c(6,7))))) %>%
-        formatSignif(columns = c('weight', 'p', 'p_adj'), digits = 3)
-    })
-
+    node_render <- values_network_c$node %>%
+      mutate(across(where(is.numeric),
+                    ~ case_when(
+                      floor(.) == . ~ as.character(.),
+                      abs(.) > 1 ~ sprintf("%.2f", .),
+                      abs(.) < 0.001 ~ formatC(., format = "e", digits = 2),
+                      TRUE ~ sprintf("%.2f", .)
+                    )))
     output$node_table <- DT::renderDT({
-      datatable(values_network_c$node, options=list(scrollX=T, columnDefs=list(list(visible=FALSE, targets=c(3,7))))) %>%
-        formatSignif(columns = c('raw_value'), digits = 3)
+      datatable(node_render, options=list(scrollX=T, columnDefs=list(list(visible=FALSE, targets=c(3,7)))))
     })
 
     output$network_c_graph <- renderVisNetwork({
@@ -2162,14 +2189,28 @@ server <- function(input, output, session) {
       )
     })
 
+    edge_f_render <- values_network_f$edge %>%
+      mutate(across(where(is.numeric),
+                    ~ case_when(
+                      floor(.) == . ~ as.character(.),
+                      abs(.) > 1 ~ sprintf("%.2f", .),
+                      abs(.) < 0.001 ~ formatC(., format = "e", digits = 2),
+                      TRUE ~ sprintf("%.2f", .)
+                    )))
     output$edge_f_table <- DT::renderDT({
-      datatable(values_network_f$edge, options=list(scrollX=T, columnDefs=list(list(visible=FALSE, targets=c(6,7))))) %>%
-                  formatSignif(columns = c('weight', 'p', 'p_adj'), digits = 3)
+      datatable(edge_f_render, options=list(scrollX=T, columnDefs=list(list(visible=FALSE, targets=c(6,7)))))
     })
 
+    node_f_render <- values_network_f$node %>%
+      mutate(across(where(is.numeric),
+                    ~ case_when(
+                      floor(.) == . ~ as.character(.),
+                      abs(.) > 1 ~ sprintf("%.2f", .),
+                      abs(.) < 0.001 ~ formatC(., format = "e", digits = 2),
+                      TRUE ~ sprintf("%.2f", .)
+                    )))
     output$node_f_table <- DT::renderDT({
-      datatable(values_network_f$node, options=list(scrollX=T, columnDefs=list(list(visible=FALSE, targets=c(3,7))))) %>%
-                  formatSignif(columns = c('raw_value'), digits = 3)
+      datatable(node_f_render, options=list(scrollX=T, columnDefs=list(list(visible=FALSE, targets=c(3,7)))))
     })
 
     output$network_graph <- renderVisNetwork({
@@ -2304,9 +2345,16 @@ server <- function(input, output, session) {
       paste0("( adjusted p_value threshold : ", adj_p, " )")
     })
 
+    pathway_table_render <- values_pathway$pathway_table %>%
+      mutate(across(where(is.numeric),
+                    ~ case_when(
+                      floor(.) == . ~ as.character(.),
+                      abs(.) > 1 ~ sprintf("%.2f", .),
+                      abs(.) < 0.001 ~ formatC(., format = "e", digits = 2),
+                      TRUE ~ sprintf("%.2f", .)
+                    )))
     output$vital_pathway <- DT::renderDT({
-      datatable(values_pathway$pathway_table, options=list(scrollX=T, columnDefs=list(list(visible=FALSE, targets=c(3,6))))) %>%
-                  formatSignif(columns = c('step1_stats', 'step1_p_adj', 'step2_stats', 'step2_p_adj'), digits = 3)
+      datatable(pathway_table_render, options=list(scrollX=T, columnDefs=list(list(visible=FALSE, targets=c(3,6)))))
     })
 
     if( !is.null(values_pathway$pathway_plot) ) {
@@ -2375,6 +2423,12 @@ server <- function(input, output, session) {
     values_pathway$label_selector_path_net <- target_label
     target_pathway <- input$map_id
 
+    # check for wrong pathway id input
+    if(!grepl("^map\\d{5}$", target_pathway)) {
+      showNotification("Error: Please input a valid KEGG pathway ID (e.g., map00010).")
+      resetLoadingButton("pathway_net_button")
+      req(FALSE)
+    }
 
     if(switch_in_pathway) {
       # check network filter results
@@ -2494,14 +2548,28 @@ server <- function(input, output, session) {
       )
     })
 
+    path_edge_render <- values_pathway$path_edge %>%
+      mutate(across(where(is.numeric),
+                    ~ case_when(
+                      floor(.) == . ~ as.character(.),
+                      abs(.) > 1 ~ sprintf("%.2f", .),
+                      abs(.) < 0.001 ~ formatC(., format = "e", digits = 2),
+                      TRUE ~ sprintf("%.2f", .)
+                    )))
     output$pathway_net_edge <- DT::renderDT({
-      datatable(values_pathway$path_edge, options=list(scrollX=T, columnDefs=list(list(visible=FALSE, targets=c(6,7))))) %>%
-                  formatSignif(columns = c('weight', 'p', 'p_adj'), digits = 3)
+      datatable(path_edge_render, options=list(scrollX=T, columnDefs=list(list(visible=FALSE, targets=c(6,7)))))
     })
 
+    path_node_render <- values_pathway$path_node %>%
+      mutate(across(where(is.numeric),
+                    ~ case_when(
+                      floor(.) == . ~ as.character(.),
+                      abs(.) > 1 ~ sprintf("%.2f", .),
+                      abs(.) < 0.001 ~ formatC(., format = "e", digits = 2),
+                      TRUE ~ sprintf("%.2f", .)
+                    )))
     output$pathway_net_node <- DT::renderDT({
-      datatable(values_pathway$path_node, options=list(scrollX=T, columnDefs=list(list(visible=FALSE, targets=c(3,7))))) %>%
-                  formatSignif(columns = c('raw_value'), digits = 3)
+      datatable(path_node_render, options=list(scrollX=T, columnDefs=list(list(visible=FALSE, targets=c(3,7)))))
     })
 
     output$pathway_net_graph <- renderVisNetwork({
@@ -2726,9 +2794,16 @@ server <- function(input, output, session) {
       HTML(paste0("<b>Cluster results of ", target_label_netA, "</b>"))
     })
 
+    clust_node_render <- values_network_netA$clust_node %>%
+      mutate(across(where(is.numeric),
+                    ~ case_when(
+                      floor(.) == . ~ as.character(.),
+                      abs(.) > 1 ~ sprintf("%.2f", .),
+                      abs(.) < 0.001 ~ formatC(., format = "e", digits = 2),
+                      TRUE ~ sprintf("%.2f", .)
+                    )))
     output$clustNode_table <- DT::renderDT({
-      datatable(values_network_netA$clust_node, options=list(scrollX=T, columnDefs=list(list(visible=FALSE, targets=c(3,7))))) %>%
-                  formatSignif(columns = c('raw_value'), digits = 3)
+      datatable(clust_node_render, options=list(scrollX=T, columnDefs=list(list(visible=FALSE, targets=c(3,7)))))
     })
 
     output$clust_stat_title <- renderUI({
@@ -2931,9 +3006,16 @@ server <- function(input, output, session) {
           )
       })
 
+    clust_forest_df_render <- values_network_netA$clust_forest_df %>%
+      mutate(across(where(is.numeric),
+                    ~ case_when(
+                      floor(.) == . ~ as.character(.),
+                      abs(.) > 1 ~ sprintf("%.2f", .),
+                      abs(.) < 0.001 ~ formatC(., format = "e", digits = 2),
+                      TRUE ~ sprintf("%.2f", .)
+                    )))
       output$forest_df <- DT::renderDT({
-        datatable(values_network_netA$clust_forest_df, options=list(scrollX=T)) %>%
-                    formatSignif(columns = c('OR', 'p_val', 'CI_lower', 'CI_upper'), digits = 3)
+        datatable(clust_forest_df_render, options=list(scrollX=T))
       })
     } else {
       output$forest_plot_ui <- renderUI({ NULL })
@@ -2956,14 +3038,28 @@ server <- function(input, output, session) {
       )
     })
 
+    clust_edge_render <- clust_edge %>%
+      mutate(across(where(is.numeric),
+                    ~ case_when(
+                      floor(.) == . ~ as.character(.),
+                      abs(.) > 1 ~ sprintf("%.2f", .),
+                      abs(.) < 0.001 ~ formatC(., format = "e", digits = 2),
+                      TRUE ~ sprintf("%.2f", .)
+                    )))
     output$edge_clust_table <- DT::renderDT({
-      datatable(clust_edge, options=list(scrollX=T, columnDefs=list(list(visible=FALSE, targets=c(6,7))))) %>%
-                  formatSignif(columns = c('weight', 'p', 'p_adj'), digits = 3)
+      datatable(clust_edge_render, options=list(scrollX=T, columnDefs=list(list(visible=FALSE, targets=c(6,7)))))
     })
 
+    clust_node_render <- clust_node %>%
+      mutate(across(where(is.numeric),
+                    ~ case_when(
+                      floor(.) == . ~ as.character(.),
+                      abs(.) > 1 ~ sprintf("%.2f", .),
+                      abs(.) < 0.001 ~ formatC(., format = "e", digits = 2),
+                      TRUE ~ sprintf("%.2f", .)
+                    )))
     output$node_clust_table <- DT::renderDT({
-      datatable(clust_node, options=list(scrollX=T, columnDefs=list(list(visible=FALSE, targets=c(3,7))))) %>%
-                  formatSignif(columns = c('raw_value'), digits = 3)
+      datatable(clust_node_render, options=list(scrollX=T, columnDefs=list(list(visible=FALSE, targets=c(3,7)))))
     })
 
     output$clust_graph <- renderVisNetwork({
@@ -3106,9 +3202,16 @@ server <- function(input, output, session) {
       paste0("( adjusted p_value threshold : ", clust_p, " )")
     })
 
+    clust_id_pathway_render <- values_network_netA$clust_id_pathway %>%
+      mutate(across(where(is.numeric),
+                    ~ case_when(
+                      floor(.) == . ~ as.character(.),
+                      abs(.) > 1 ~ sprintf("%.2f", .),
+                      abs(.) < 0.001 ~ formatC(., format = "e", digits = 2),
+                      TRUE ~ sprintf("%.2f", .)
+                    )))
     output$path_clust_table <- DT::renderDT({
-      datatable(values_network_netA$clust_id_pathway, options=list(scrollX=T, columnDefs=list(list(visible=FALSE, targets=c(3,6))))) %>%
-                  formatSignif(columns = c('step1_stats', 'step1_p_adj', 'step2_stats', 'step2_p_adj'), digits = 3)
+      datatable(clust_id_pathway_render, options=list(scrollX=T, columnDefs=list(list(visible=FALSE, targets=c(3,6)))))
     })
 
     if( !is.null(values_network_netA$netA_clust_path_plot) ) {
@@ -3169,6 +3272,13 @@ server <- function(input, output, session) {
     target_label <- values_network_netA$clust_path_label
     clust_id <- values_network_netA$clust_id
     switch_in_netA <- input$switch_in_netA
+
+    # check for wrong pathway id input
+    if(!grepl("^map\\d{5}$", target_pathway)) {
+      showNotification("Error: Please input a valid KEGG pathway ID (e.g., map00010).")
+      resetLoadingButton("pathway_net_button")
+      req(FALSE)
+    }
 
     # check whether the cohort clustering task has been performed
     if(switch_in_netA){
@@ -3285,14 +3395,28 @@ server <- function(input, output, session) {
       )
     })
 
+    clust_path_edge_render <- values_network_netA$clust_path_edge %>%
+      mutate(across(where(is.numeric),
+                    ~ case_when(
+                      floor(.) == . ~ as.character(.),
+                      abs(.) > 1 ~ sprintf("%.2f", .),
+                      abs(.) < 0.001 ~ formatC(., format = "e", digits = 2),
+                      TRUE ~ sprintf("%.2f", .)
+                    )))
     output$netA_path_edge <- DT::renderDT({
-      datatable(values_network_netA$clust_path_edge, options=list(scrollX=T, columnDefs=list(list(visible=FALSE, targets=c(6,7))))) %>%
-                  formatSignif(columns = c('weight', 'p', 'p_adj'), digits = 3)
+      datatable(clust_path_edge_render, options=list(scrollX=T, columnDefs=list(list(visible=FALSE, targets=c(6,7)))))
     })
 
+    clust_path_node_render <- values_network_netA$clust_path_node %>%
+      mutate(across(where(is.numeric),
+                    ~ case_when(
+                      floor(.) == . ~ as.character(.),
+                      abs(.) > 1 ~ sprintf("%.2f", .),
+                      abs(.) < 0.001 ~ formatC(., format = "e", digits = 2),
+                      TRUE ~ sprintf("%.2f", .)
+                    )))
     output$netA_path_node <- DT::renderDT({
-      datatable(values_network_netA$clust_path_node, options=list(scrollX=T, columnDefs=list(list(visible=FALSE, targets=c(3,7))))) %>%
-                  formatSignif(columns = c('raw_value'), digits = 3)
+      datatable(clust_path_node_render, options=list(scrollX=T, columnDefs=list(list(visible=FALSE, targets=c(3,7)))))
     })
 
     output$netA_path_graph <- renderVisNetwork({
