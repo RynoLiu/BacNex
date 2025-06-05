@@ -201,6 +201,23 @@ Module `Differential taxa` employ [PreLect algorithms](https://github.com/Yinche
 ![alt](img/img1.png?raw=true)
 **Fig 1.** BCE loss and prevalence at different lambda. Optional lamda (dotted line) is selected at the inflection point of the BCE loss curve.
 
+##### Parameters in Lambda tuning
+
+| Parameters | Description |
+|----------|----------|
+| Normalization method | The normalization method on the given taxa table. |
+| Number of examine lambda | Maximum number of assessed lambda. |
+| Maximum iterations for fitting | Maximum number of iterations taken for the solvers to converge. |
+| Learning rate | Learning rate in RMSprop optimizer. |
+
+
+##### Parameters in Lambda Decision
+
+| Parameters | Description |
+|----------|----------|
+| Maximum depth for dTree | The maximum depth of the decision tree used in the segmentation algorithm. |
+| Minimun point for each sequement | The minimum number of data points required to form a valid segment. |
+
 
 #### *Network construction*
 
@@ -213,10 +230,21 @@ The networks are constructed based on taxonomy genomic similarity, with Fisher's
 
 #### *Network filter*
 
-After constructing the global genomic similarity network, users can identify important sub-networks across different cohorts by filtering based on edge weights and PreLect model weights. BacNex then facilitates the visualization of these defined sub-networks.
+After constructing the global genomic similarity network, users can identify important sub-networks across different cohorts by filtering based on edge weights and PreLect model weights. You can apply Determination of PreLect weight threshold module to set up the PreLect weight threshold (Fig. 3). BacNex then facilitates the visualization of these defined sub-networks (Fig. 4).
 
 ![alt](img/img3.png?raw=true)
-**Fig 3.** The visulized sub-network by BacNex based on [visNetwork](https://github.com/datastorm-open/visNetwork).
+**Fig 3.** Determination of PreLect weight threshold.
+
+##### Parameters in Determination of PreLect weight threshold
+
+| Parameters | Description |
+|----------|----------|
+| k for segmentation point | The location of the cutting point. (from left to right) |
+| Maximum depth for dTree | The maximum depth of the decision tree used in the segmentation algorithm. |
+| Minimun point for each sequement | The minimum number of data points required to form a valid segment. |
+
+![alt](img/img4.png?raw=true)
+**Fig 4.** The visulized sub-network by BacNex based on [visNetwork](https://github.com/datastorm-open/visNetwork).
 
 
 #### *Pathway analysis*
