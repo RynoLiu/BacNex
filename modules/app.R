@@ -686,6 +686,10 @@ server <- function(input, output, session) {
     meta <- reactive({
       req(input$meta_file)
       meta <- read.csv(input$meta_file$datapath, header = T, stringsAsFactors = F)
+      if(!"Accession_ID" %in% colnames(meta)) {
+        showNotification("Error: Wrong metadata format. Please check the column names.")
+        req(FALSE)
+      }
       meta <- meta[order(meta$Accession_ID, decreasing=FALSE), ] # order by Accession_ID
       meta
     })
@@ -2933,8 +2937,12 @@ server <- function(input, output, session) {
         scale_fill_manual(values=barCOLS)+
         scale_color_manual(values=dotCOLS)+
         scale_x_discrete(name="Cluster ID") +
-        scale_y_continuous(name="Odds ratio", breaks=sort(c(seq(0, 10, length.out=5), 1))) +
-        coord_flip(ylim=c(0,10)) +
+        scale_y_log10(
+          name = "Odds ratio (log10)",
+          breaks = c(0.1, 0.5, 1, 5, 10),
+          labels = c("0.1", "0.5", "1", "5", "10")
+        ) +
+        coord_flip(ylim=c(0.1,10)) +
         theme_minimal() +
         theme(axis.line = element_line(color = "black", linewidth = 0.5)) +
         labs(fill="Cohort", color="Cohort")
