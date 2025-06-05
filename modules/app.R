@@ -415,7 +415,7 @@ ui <- dashboardPage(
                   fluidRow(
                     column(3, numericInput('k_fdecide', label="k for segmentation point", value=3, min=1, max=30, step=1)),
                     column(3, numericInput('max_depth_fdecide', label='Maximum depth for dTree', value=7, min=1, max=10, step=1)),
-                    column(3, numericInput('min_bucket_fdecide', label='Minimun point for each sequement', value=10, min=1, max=50, step=1))
+                    column(3, numericInput('min_bucket_fdecide', label='Minimum point for each sequement', value=10, min=1, max=50, step=1))
                   ),
                   loadingButton("fdecide_button", "Get the result", loadingLabel = "Processing...", style="color: #444; background-color: #f4f4f4; border-color: #ddd;"),
                   HTML("<br><br>"),
