@@ -1770,7 +1770,7 @@ server <- function(input, output, session) {
     save_dir = file.path(working_dir, 'prelect_dir')
 
     if(dir.exists(save_dir)){
-      d1 <- read.csv(file.path(save_dir, 'TuningResult.csv'), row.names=1)
+      d1 <- read.csv(file.path(save_dir, 'TuningResult.csv'))
       d2 <- read.csv(file.path(save_dir,'Pvl_distribution.csv'))
       lmbd_picking <- LambdaDecision(d1, d2, maxdepth=maxdepth_, minbucket=minbucket_)
 
